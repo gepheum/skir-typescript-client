@@ -3106,6 +3106,58 @@ export interface RequestHandler<RequestMeta = ExpressRequest> {
    */
   handleRequest(reqBody: string, reqMeta: RequestMeta): Promise<RawResponse>;
 }
+/** Configuration options for a Skir service. */
+export interface ServiceOptions<RequestMeta = ExpressRequest> {
+  /**
+   * Whether to keep unrecognized values when deserializing requests.
+   *
+   * **WARNING:** Only enable this for data from trusted sources. Malicious
+   * actors could inject fields with IDs not yet defined in your schema. If you
+   * preserve this data and later define those IDs in a future schema version,
+   * the injected data could be deserialized as valid fields, leading to
+   * security vulnerabilities or data corruption.
+   *
+   * Defaults to `false`.
+   */
+  keepUnrecognizedValues: boolean;
+
+  /**
+   * Predicate that determines whether the message of an unknown error (i.e. not
+   * a `ServiceError`) should be sent to the client.
+   *
+   * By default, unknown errors are masked and the client receives a generic
+   * 'server error' message with status 500. This is to prevent leaking
+   * sensitive information to the client.
+   *
+   * You can enable this for debugging purposes or if you are sure that your
+   * error messages are safe to expose.
+   */
+  canCopyUnknownErrorMessageToResponse: (reqMeta: RequestMeta) => boolean;
+
+  /**
+   * Callback invoked whenever an error is thrown during method execution.
+   *
+   * Use this to log errors for monitoring, debugging, or alerting purposes.
+   * The callback receives the error object, the method being executed, the
+   * request that triggered the error, and the request metadata.
+   *
+   * Defaults to a no-op function.
+   */
+  errorLogger: <Request>(
+    throwable: any,
+    method: Method<Request, unknown>,
+    req: Request,
+    reqMeta: RequestMeta,
+  ) => void;
+
+  /**
+   * URL to the JavaScript file for the Skir Studio app.
+   *
+   * Skir Studio is a web interface for exploring and testing your Skir service.
+   * It is served when the service receives a request at '${serviceUrl}?studio'.
+   */
+  studioAppJsUrl: string;
+}
 
 /**
  * Implementation of a skir service.
@@ -3171,6 +3223,7 @@ export class Service<RequestMeta = ExpressRequest>
       canCopyUnknownErrorMessageToResponse:
         options?.canCopyUnknownErrorMessageToResponse ??
         DEFAULT_SERVICE_OPTIONS.canCopyUnknownErrorMessageToResponse,
+      errorLogger: options?.errorLogger ?? DEFAULT_SERVICE_OPTIONS.errorLogger,
       studioAppJsUrl: new URL(
         options?.studioAppJsUrl ?? DEFAULT_SERVICE_OPTIONS.studioAppJsUrl,
       ).toString(),
@@ -3330,6 +3383,7 @@ export class Service<RequestMeta = ExpressRequest>
     try {
       res = await methodImpl.impl(req, reqMeta);
     } catch (e) {
+      this.options.errorLogger(e, methodImpl.method, req, reqMeta);
       if (e instanceof ServiceError) {
         return e.toRawResponse();
       } else {
@@ -3409,44 +3463,10 @@ export class Service<RequestMeta = ExpressRequest>
   } = {};
 }
 
-/** Configuration options for a Skir service. */
-export interface ServiceOptions<RequestMeta = ExpressRequest> {
-  /**
-   * Whether to keep unrecognized values when deserializing requests.
-   *
-   * **WARNING:** Only enable this for data from trusted sources. Malicious
-   * actors could inject fields with IDs not yet defined in your schema. If you
-   * preserve this data and later define those IDs in a future schema version,
-   * the injected data could be deserialized as valid fields, leading to
-   * security vulnerabilities or data corruption.
-   *
-   * Defaults to `false`.
-   */
-  keepUnrecognizedValues: boolean;
-  /**
-   * Predicate that determines whether the message of an unknown error (i.e. not
-   * a `ServiceError`) should be sent to the client.
-   *
-   * By default, unknown errors are masked and the client receives a generic
-   * 'server error' message with status 500. This is to prevent leaking
-   * sensitive information to the client.
-   *
-   * You can enable this for debugging purposes or if you are sure that your
-   * error messages are safe to expose.
-   */
-  canCopyUnknownErrorMessageToResponse: (reqMeta: RequestMeta) => boolean;
-  /**
-   * URL to the JavaScript file for the Skir Studio app.
-   *
-   * Skir Studio is a web interface for exploring and testing your Skir service.
-   * It is served when the service receives a request at '${serviceUrl}?studio'.
-   */
-  studioAppJsUrl: string;
-}
-
 const DEFAULT_SERVICE_OPTIONS: ServiceOptions<unknown> = {
   keepUnrecognizedValues: false,
   canCopyUnknownErrorMessageToResponse: () => false,
+  errorLogger: () => {},
   studioAppJsUrl:
     "https://cdn.jsdelivr.net/npm/skir-studio/dist/skir-studio-standalone.js",
 };
