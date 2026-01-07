@@ -2784,7 +2784,6 @@ export class ServiceClient {
     request: Request,
     httpMethod: "GET" | "POST" = "POST",
   ): Promise<Response> {
-    this.lastRespHeaders = undefined;
     const requestJson = method.requestSerializer.toJsonCode(request);
     const requestBody = [method.name, method.number, "", requestJson].join(":");
     const requestInit: RequestInit = {
@@ -2798,7 +2797,6 @@ export class ServiceClient {
       url.search = requestBody.replace(/%/g, "%25");
     }
     const httpResponse = await fetch(url, requestInit);
-    this.lastRespHeaders = httpResponse.headers;
     const responseData = await httpResponse.blob();
     if (httpResponse.ok) {
       const jsonCode = await responseData.text();
@@ -2814,105 +2812,288 @@ export class ServiceClient {
       throw new Error(`HTTP status ${httpResponse.status}${message}`);
     }
   }
-
-  get lastResponseHeaders(): Headers | undefined {
-    return this.lastRespHeaders;
-  }
-
-  private lastRespHeaders: Headers | undefined;
 }
 
 /** Raw response returned by the server. */
-export class RawResponse {
-  constructor(
-    readonly data: string,
-    readonly type: "ok-json" | "ok-html" | "bad-request" | "server-error",
-  ) {}
-
-  get statusCode(): number {
-    switch (this.type) {
-      case "ok-json":
-      case "ok-html":
-        return 200;
-      case "bad-request":
-        return 400;
-      case "server-error":
-        return 500;
-      default: {
-        const _: never = this.type;
-        throw new Error(_);
-      }
-    }
-  }
-
-  get contentType(): string {
-    switch (this.type) {
-      case "ok-json":
-        return "application/json";
-      case "ok-html":
-        return "text/html; charset=utf-8";
-      case "bad-request":
-      case "server-error":
-        return "text/plain; charset=utf-8";
-      default: {
-        const _: never = this.type;
-        throw new Error(_);
-      }
-    }
-  }
+export interface RawResponse {
+  readonly data: string;
+  readonly statusCode: number;
+  readonly contentType: string;
 }
 
-// Copied from
-//   https://github.com/gepheum/restudio/blob/main/index.jsdeliver.html
-const RESTUDIO_HTML = `<!DOCTYPE html>
+function makeOkJsonResponse(data: string): RawResponse {
+  return {
+    data: data,
+    statusCode: 200,
+    contentType: "application/json",
+  };
+}
+
+function makeOkHtmlResponse(data: string): RawResponse {
+  return {
+    data: data,
+    statusCode: 200,
+    contentType: "text/html; charset=utf-8",
+  };
+}
+
+function makeBadRequestResponse(data: string): RawResponse {
+  return {
+    data: data,
+    statusCode: 400,
+    contentType: "text/plain; charset=utf-8",
+  };
+}
+
+function makeServerErrorResponse(data: string, statusCode = 500): RawResponse {
+  return {
+    data: data,
+    statusCode: statusCode,
+    contentType: "text/plain; charset=utf-8",
+  };
+}
+
+function getStudioHtml(studioAppJsUrl: string): string {
+  // Copied from
+  //   https://github.com/gepheum/skir-studio/blob/main/index.jsdeliver.html
+  return `<!DOCTYPE html>
 
 <html>
   <head>
     <meta charset="utf-8" />
     <title>RESTudio</title>
-    <script src="https://cdn.jsdelivr.net/npm/restudio/dist/restudio-standalone.js"></script>
+    <script src="${studioAppJsUrl}"></script>
   </head>
   <body style="margin: 0; padding: 0;">
     <restudio-app></restudio-app>
   </body>
 </html>
 `;
+}
 
 /**
- * Implementation of a skir service.
+ * If this error is thrown from a method implementation, the specified status
+ * code and message will be returned in the HTTP response.
  *
- * Usage: call `.addMethod()` to register methods, then install the service on
- * an HTTP server either by:
- *   - calling the `installServiceOnExpressApp()` top-level function  if you are
- *       using ExpressJS
- *   - writing your own implementation of `installServiceOn*()` which calls
- *       `.handleRequest()` if you are using another web application framework
+ * If any other type of exception is thrown, the response status code will be
+ * 500 (Internal Server Error).
  */
-export class Service<
-  RequestMeta = ExpressRequest,
-  ResponseMeta = ExpressResponse,
-> {
-  addMethod<Request, Response>(
-    method: Method<Request, Response>,
-    impl: (
-      req: Request,
-      reqMeta: RequestMeta,
-      resMeta: ResponseMeta,
-    ) => Promise<Response>,
-  ): Service<RequestMeta, ResponseMeta> {
-    const { number } = method;
-    if (this.methodImpls[number]) {
-      throw new Error(
-        `Method with the same number already registered (${number})`,
-      );
-    }
-    this.methodImpls[number] = {
-      method: method,
-      impl: impl,
-    } as MethodImpl<unknown, unknown, RequestMeta, ResponseMeta>;
-    return this;
+export class ServiceError extends Error {
+  constructor(
+    private readonly spec:
+      | {
+          statusCode: 400;
+          desc: "Bad Request";
+          message?: string;
+        }
+      | {
+          statusCode: 401;
+          desc: "Unauthorized";
+          message?: string;
+        }
+      | {
+          statusCode: 402;
+          desc: "Payment Required";
+          message?: string;
+        }
+      | {
+          statusCode: 403;
+          desc: "Forbidden";
+          message?: string;
+        }
+      | {
+          statusCode: 404;
+          desc: "Not Found";
+          message?: string;
+        }
+      | {
+          statusCode: 405;
+          desc: "Method Not Allowed";
+          message?: string;
+        }
+      | {
+          statusCode: 406;
+          desc: "Not Acceptable";
+          message?: string;
+        }
+      | {
+          statusCode: 407;
+          desc: "Proxy Authentication Required";
+          message?: string;
+        }
+      | {
+          statusCode: 408;
+          desc: "Request Timeout";
+          message?: string;
+        }
+      | {
+          statusCode: 409;
+          desc: "Conflict";
+          message?: string;
+        }
+      | {
+          statusCode: 410;
+          desc: "Gone";
+          message?: string;
+        }
+      | {
+          statusCode: 411;
+          desc: "Length Required";
+          message?: string;
+        }
+      | {
+          statusCode: 412;
+          desc: "Precondition Failed";
+          message?: string;
+        }
+      | {
+          statusCode: 413;
+          desc: "Content Too Large";
+          message?: string;
+        }
+      | {
+          statusCode: 414;
+          desc: "URI Too Long";
+          message?: string;
+        }
+      | {
+          statusCode: 415;
+          desc: "Unsupported Media Type";
+          message?: string;
+        }
+      | {
+          statusCode: 416;
+          desc: "Range Not Satisfiable";
+          message?: string;
+        }
+      | {
+          statusCode: 417;
+          desc: "Expectation Failed";
+          message?: string;
+        }
+      | {
+          statusCode: 418;
+          desc: "I'm a teapot";
+          message?: string;
+        }
+      | {
+          statusCode: 421;
+          desc: "Misdirected Request";
+          message?: string;
+        }
+      | {
+          statusCode: 422;
+          desc: "Unprocessable Content";
+          message?: string;
+        }
+      | {
+          statusCode: 423;
+          desc: "Locked";
+          message?: string;
+        }
+      | {
+          statusCode: 424;
+          desc: "Failed Dependency";
+          message?: string;
+        }
+      | {
+          statusCode: 425;
+          desc: "Too Early";
+          message?: string;
+        }
+      | {
+          statusCode: 426;
+          desc: "Upgrade Required";
+          message?: string;
+        }
+      | {
+          statusCode: 428;
+          desc: "Precondition Required";
+          message?: string;
+        }
+      | {
+          statusCode: 429;
+          desc: "Too Many Requests";
+          message?: string;
+        }
+      | {
+          statusCode: 431;
+          desc: "Request Header Fields Too Large";
+          message?: string;
+        }
+      | {
+          statusCode: 451;
+          desc: "Unavailable For Legal Reasons";
+          message?: string;
+        }
+      | {
+          statusCode: 500;
+          desc: "Internal Server Error";
+          message?: string;
+        }
+      | {
+          statusCode: 501;
+          desc: "Not Implemented";
+          message?: string;
+        }
+      | {
+          statusCode: 502;
+          desc: "Bad Gateway";
+          message?: string;
+        }
+      | {
+          statusCode: 503;
+          desc: "Service Unavailable";
+          message?: string;
+        }
+      | {
+          statusCode: 504;
+          desc: "Gateway Timeout";
+          message?: string;
+        }
+      | {
+          statusCode: 505;
+          desc: "HTTP Version Not Supported";
+          message?: string;
+        }
+      | {
+          statusCode: 506;
+          desc: "Variant Also Negotiates";
+          message?: string;
+        }
+      | {
+          statusCode: 507;
+          desc: "Insufficient Storage";
+          message?: string;
+        }
+      | {
+          statusCode: 508;
+          desc: "Loop Detected";
+          message?: string;
+        }
+      | {
+          statusCode: 510;
+          desc: "Not Extended";
+          message?: string;
+        }
+      | {
+          statusCode: 511;
+          desc: "Network Authentication Required";
+          message?: string;
+        },
+  ) {
+    super(spec.message ?? spec.desc);
   }
 
+  toRawResponse(): RawResponse {
+    return makeServerErrorResponse(
+      this.spec.message ?? this.spec.desc,
+      this.spec.statusCode,
+    );
+  }
+}
+
+export interface RequestHandler<RequestMeta = ExpressRequest> {
   /**
    * Parses the content of a user request and invokes the appropriate method.
    * If you are using ExpressJS as your web application framework, you don't
@@ -2922,15 +3103,100 @@ export class Service<
    * If the request is a GET request, pass in the decoded query string as the
    * request's body. The query string is the part of the URL after '?', and it
    * can be decoded with DecodeURIComponent.
-   *
-   * Pass in "keep-unrecognized-values" if the request cannot come from a
-   * malicious user.
    */
+  handleRequest(reqBody: string, reqMeta: RequestMeta): Promise<RawResponse>;
+}
+
+/**
+ * Implementation of a skir service.
+ *
+ * Usage: call `.addMethod()` to register methods, then install the service on
+ * an HTTP server either by:
+ *   - calling the `installServiceOnExpressApp()` top-level function if you are
+ *       using ExpressJS
+ *   - writing your own implementation of `installServiceOn*()` which calls
+ *       `.handleRequest()` if you are using another web application framework
+ *
+ * ## Handling Request Metadata
+ *
+ * The `RequestMeta` type parameter specifies what metadata (authentication,
+ * headers, etc.) your method implementations receive. There are two approaches:
+ *
+ * ### Approach 1: Use the framework's request type directly
+ *
+ * Set `RequestMeta` to your framework's request type (e.g., `ExpressRequest`).
+ * All method implementations will receive the full framework request object.
+ *
+ * ```typescript
+ * const service = new Service<ExpressRequest>();
+ * service.addMethod(myMethod, async (req, expressReq) => {
+ *   const isAdmin = expressReq.user?.role === 'admin';
+ *   // ...
+ * });
+ * installServiceOnExpressApp(app, '/api', service, text, json);
+ * ```
+ *
+ * ### Approach 2: Use a simplified custom type (recommended for testing)
+ *
+ * Set `RequestMeta` to a minimal type containing only what your service needs.
+ * Use `withRequestMeta()` to extract this data from the framework request when
+ * installing the service.
+ *
+ * ```typescript
+ * const service = new Service<{ isAdmin: boolean }>();
+ * service.addMethod(myMethod, async (req, { isAdmin }) => {
+ *   // Implementation is framework-agnostic and easy to unit test
+ *   if (!isAdmin) throw new ServiceError({ statusCode: 403, desc: "Forbidden" });
+ *   // ...
+ * });
+ *
+ * // Adapt to Express when installing
+ * const handler = service.withRequestMeta((req: ExpressRequest) => ({
+ *   isAdmin: req.user?.role === 'admin'
+ * }));
+ * installServiceOnExpressApp(app, '/api', handler, text, json);
+ * ```
+ *
+ * This approach decouples your service from the HTTP framework, making it easier
+ * to test and clearer about what request data it actually uses.
+ */
+export class Service<RequestMeta = ExpressRequest>
+  implements RequestHandler<RequestMeta>
+{
+  constructor(options?: Partial<ServiceOptions<RequestMeta>>) {
+    this.options = {
+      keepUnrecognizedValues:
+        options?.keepUnrecognizedValues ??
+        DEFAULT_SERVICE_OPTIONS.keepUnrecognizedValues,
+      canCopyUnknownErrorMessageToResponse:
+        options?.canCopyUnknownErrorMessageToResponse ??
+        DEFAULT_SERVICE_OPTIONS.canCopyUnknownErrorMessageToResponse,
+      studioAppJsUrl: new URL(
+        options?.studioAppJsUrl ?? DEFAULT_SERVICE_OPTIONS.studioAppJsUrl,
+      ).toString(),
+    };
+  }
+
+  addMethod<Request, Response>(
+    method: Method<Request, Response>,
+    impl: (req: Request, reqMeta: RequestMeta) => Promise<Response>,
+  ): Service<RequestMeta> {
+    const { number } = method;
+    if (this.methodImpls[number]) {
+      throw new Error(
+        `Method with the same number already registered (${number})`,
+      );
+    }
+    this.methodImpls[number] = {
+      method: method,
+      impl: impl,
+    } as MethodImpl<unknown, unknown, RequestMeta>;
+    return this;
+  }
+
   async handleRequest(
     reqBody: string,
     reqMeta: RequestMeta,
-    resMeta: ResponseMeta,
-    keepUnrecognizedValues?: "keep-unrecognized-values",
   ): Promise<RawResponse> {
     if (reqBody === "" || reqBody === "list") {
       const json = {
@@ -2944,9 +3210,10 @@ export class Service<
         })),
       };
       const jsonCode = JSON.stringify(json, undefined, "  ");
-      return new RawResponse(jsonCode, "ok-json");
-    } else if (reqBody === "debug" || reqBody === "restudio") {
-      return new RawResponse(RESTUDIO_HTML, "ok-html");
+      return makeOkHtmlResponse(jsonCode);
+    } else if (reqBody === "studio") {
+      const studioHtml = getStudioHtml(this.options.studioAppJsUrl);
+      return makeOkHtmlResponse(studioHtml);
     }
 
     // Parse request
@@ -2962,13 +3229,12 @@ export class Service<
       try {
         reqBodyJson = JSON.parse(reqBody);
       } catch (_e) {
-        return new RawResponse("bad request: invalid JSON", "bad-request");
+        return makeBadRequestResponse("bad request: invalid JSON");
       }
       const methodField = (reqBodyJson as AnyRecord)["method"];
       if (methodField === undefined) {
-        return new RawResponse(
+        return makeBadRequestResponse(
           "bad request: missing 'method' field in JSON",
-          "bad-request",
         );
       }
       if (typeof methodField === "string") {
@@ -2978,17 +3244,15 @@ export class Service<
         methodName = "?";
         methodNumber = methodField;
       } else {
-        return new RawResponse(
+        return makeBadRequestResponse(
           "bad request: 'method' field must be a string or a number",
-          "bad-request",
         );
       }
       format = "readable";
       const requestField = (reqBodyJson as AnyRecord)["request"];
       if (requestField === undefined) {
-        return new RawResponse(
+        return makeBadRequestResponse(
           "bad request: missing 'request' field in JSON",
-          "bad-request",
         );
       }
       requestData = ["json", requestField as Json];
@@ -2996,10 +3260,7 @@ export class Service<
       // A colon-separated string
       const match = reqBody.match(/^([^:]*):([^:]*):([^:]*):([\S\s]*)$/);
       if (!match) {
-        return new RawResponse(
-          "bad request: invalid request format",
-          "bad-request",
-        );
+        return makeBadRequestResponse("bad request: invalid request format");
       }
       methodName = match[1]!;
       const methodNumberStr = match[2]!;
@@ -3008,9 +3269,8 @@ export class Service<
 
       if (methodNumberStr) {
         if (!/^-?[0-9]+$/.test(methodNumberStr)) {
-          return new RawResponse(
+          return makeBadRequestResponse(
             "bad request: can't parse method number",
-            "bad-request",
           );
         }
         methodNumber = parseInt(methodNumberStr);
@@ -3027,14 +3287,12 @@ export class Service<
         (m) => m.method.name === methodName,
       );
       if (nameMatches.length === 0) {
-        return new RawResponse(
+        return makeBadRequestResponse(
           `bad request: method not found: ${methodName}`,
-          "bad-request",
         );
       } else if (nameMatches.length > 1) {
-        return new RawResponse(
+        return makeBadRequestResponse(
           `bad request: method name '${methodName}' is ambiguous; use method number instead`,
-          "bad-request",
         );
       }
       methodNumber = nameMatches[0]!.method.number;
@@ -3042,9 +3300,8 @@ export class Service<
 
     const methodImpl = this.methodImpls[methodNumber];
     if (!methodImpl) {
-      return new RawResponse(
+      return makeBadRequestResponse(
         `bad request: method not found: ${methodName}; number: ${methodNumber}`,
-        "bad-request",
       );
     }
 
@@ -3053,26 +3310,36 @@ export class Service<
       if (requestData[0] == "json") {
         req = methodImpl.method.requestSerializer.fromJson(
           requestData[1],
-          keepUnrecognizedValues,
+          this.options.keepUnrecognizedValues
+            ? "keep-unrecognized-values"
+            : undefined,
         );
       } else {
         req = methodImpl.method.requestSerializer.fromJsonCode(
           requestData[1],
-          keepUnrecognizedValues,
+          this.options.keepUnrecognizedValues
+            ? "keep-unrecognized-values"
+            : undefined,
         );
       }
     } catch (e) {
-      return new RawResponse(
-        `bad request: can't parse JSON: ${e}`,
-        "bad-request",
-      );
+      return makeBadRequestResponse(`bad request: can't parse JSON: ${e}`);
     }
 
     let res: unknown;
     try {
-      res = await methodImpl.impl(req, reqMeta, resMeta);
+      res = await methodImpl.impl(req, reqMeta);
     } catch (e) {
-      return new RawResponse(`server error: ${e}`, "server-error");
+      if (e instanceof ServiceError) {
+        return e.toRawResponse();
+      } else {
+        const message = this.options.canCopyUnknownErrorMessageToResponse(
+          reqMeta,
+        )
+          ? `server error: ${e}`
+          : "server error";
+        return makeServerErrorResponse(message);
+      }
     }
 
     let resJson: string;
@@ -3080,36 +3347,121 @@ export class Service<
       const flavor = format === "readable" ? "readable" : "dense";
       resJson = methodImpl.method.responseSerializer.toJsonCode(res, flavor);
     } catch (e) {
-      return new RawResponse(
+      return makeServerErrorResponse(
         `server error: can't serialize response to JSON: ${e}`,
-        "server-error",
       );
     }
 
-    return new RawResponse(resJson, "ok-json");
+    return makeOkJsonResponse(resJson);
   }
 
+  /**
+   * Creates a request handler that extracts simplified request metadata from
+   * framework-specific request objects before passing it to this service.
+   *
+   * This decouples your service implementation from the HTTP framework, making
+   * it easier to unit test (tests don't need to mock framework objects) and
+   * making the service implementation clearer by explicitly declaring exactly
+   * what request data it needs.
+   *
+   * @param transformFn Function that extracts the necessary data from the
+   *   framework-specific request object. Can be async or sync.
+   * @returns A request handler that accepts the framework-specific request type.
+   *
+   * @example
+   * ```typescript
+   * // Define a service that only needs to know if the user is an admin
+   *
+   * const service = new Service<{ isAdmin: boolean }>();
+   *
+   * service.addMethod(myMethod, async (req, { isAdmin }) => {
+   *   // Implementation is framework-agnostic and easy to test
+   *   if (!isAdmin) throw new ServiceError({ statusCode: 403, desc: "Forbidden" });
+   *   // ...
+   * });
+   *
+   * // Adapt it to work with Express
+   * const expressHandler = service.withRequestMeta((req: ExpressRequest) => ({
+   *   isAdmin: req.user?.role === 'admin'
+   * }));
+   * installServiceOnExpressApp(app, '/api', expressHandler, text, json);
+   * ```
+   */
+  withRequestMeta<NewRequestMeta>(
+    transformFn: (
+      reqMeta: NewRequestMeta,
+    ) => Promise<RequestMeta> | RequestMeta,
+  ): RequestHandler<NewRequestMeta> {
+    return {
+      handleRequest: async (
+        reqBody: string,
+        reqMeta: NewRequestMeta,
+      ): Promise<RawResponse> => {
+        const transformedMeta = await Promise.resolve(transformFn(reqMeta));
+        return this.handleRequest(reqBody, transformedMeta);
+      },
+    };
+  }
+
+  private readonly options: ServiceOptions<RequestMeta>;
   private readonly methodImpls: {
-    [number: number]: MethodImpl<unknown, unknown, RequestMeta, ResponseMeta>;
+    [number: number]: MethodImpl<unknown, unknown, RequestMeta>;
   } = {};
 }
 
-interface MethodImpl<Request, Response, RequestMeta, ResponseMeta> {
+/** Configuration options for a Skir service. */
+export interface ServiceOptions<RequestMeta = ExpressRequest> {
+  /**
+   * Whether to keep unrecognized values when deserializing requests.
+   *
+   * **WARNING:** Only enable this for data from trusted sources. Malicious
+   * actors could inject fields with IDs not yet defined in your schema. If you
+   * preserve this data and later define those IDs in a future schema version,
+   * the injected data could be deserialized as valid fields, leading to
+   * security vulnerabilities or data corruption.
+   *
+   * Defaults to `false`.
+   */
+  keepUnrecognizedValues: boolean;
+  /**
+   * Predicate that determines whether the message of an unknown error (i.e. not
+   * a `ServiceError`) should be sent to the client.
+   *
+   * By default, unknown errors are masked and the client receives a generic
+   * 'server error' message with status 500. This is to prevent leaking
+   * sensitive information to the client.
+   *
+   * You can enable this for debugging purposes or if you are sure that your
+   * error messages are safe to expose.
+   */
+  canCopyUnknownErrorMessageToResponse: (reqMeta: RequestMeta) => boolean;
+  /**
+   * URL to the JavaScript file for the Skir Studio app.
+   *
+   * Skir Studio is a web interface for exploring and testing your Skir service.
+   * It is served when the service receives a request at '${serviceUrl}?studio'.
+   */
+  studioAppJsUrl: string;
+}
+
+const DEFAULT_SERVICE_OPTIONS: ServiceOptions<unknown> = {
+  keepUnrecognizedValues: false,
+  canCopyUnknownErrorMessageToResponse: () => false,
+  studioAppJsUrl:
+    "https://cdn.jsdelivr.net/npm/skir-studio/dist/skir-studio-standalone.js",
+};
+
+interface MethodImpl<Request, Response, RequestMeta> {
   method: Method<Request, Response>;
-  impl: (
-    req: Request,
-    reqMeta: RequestMeta,
-    resMeta: ResponseMeta,
-  ) => Promise<Response>;
+  impl: (req: Request, reqMeta: RequestMeta) => Promise<Response>;
 }
 
 export function installServiceOnExpressApp(
   app: ExpressApp,
   queryPath: string,
-  service: Service<ExpressRequest, ExpressResponse>,
+  service: RequestHandler<ExpressRequest>,
   text: typeof ExpressText,
   json: typeof ExpressJson,
-  keepUnrecognizedValues?: "keep-unrecognized-values",
 ): void {
   const callback = async (
     req: ExpressRequest,
@@ -3128,12 +3480,7 @@ export function installServiceOnExpressApp(
             ? JSON.stringify(req.body)
             : "";
     }
-    const rawResponse = await service.handleRequest(
-      body,
-      req,
-      res,
-      keepUnrecognizedValues,
-    );
+    const rawResponse = await service.handleRequest(body, req);
     res
       .status(rawResponse.statusCode)
       .contentType(rawResponse.contentType)
