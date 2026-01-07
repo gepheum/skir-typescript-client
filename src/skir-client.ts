@@ -3132,7 +3132,7 @@ export interface ServiceOptions<RequestMeta = ExpressRequest> {
    * You can enable this for debugging purposes or if you are sure that your
    * error messages are safe to expose.
    */
-  canCopyUnknownErrorMessageToResponse: (reqMeta: RequestMeta) => boolean;
+  canSendUnknownErrorMessage: (reqMeta: RequestMeta) => boolean;
 
   /**
    * Callback invoked whenever an error is thrown during method execution.
@@ -3221,9 +3221,9 @@ export class Service<RequestMeta = ExpressRequest>
       keepUnrecognizedValues:
         options?.keepUnrecognizedValues ??
         DEFAULT_SERVICE_OPTIONS.keepUnrecognizedValues,
-      canCopyUnknownErrorMessageToResponse:
-        options?.canCopyUnknownErrorMessageToResponse ??
-        DEFAULT_SERVICE_OPTIONS.canCopyUnknownErrorMessageToResponse,
+      canSendUnknownErrorMessage:
+        options?.canSendUnknownErrorMessage ??
+        DEFAULT_SERVICE_OPTIONS.canSendUnknownErrorMessage,
       errorLogger: options?.errorLogger ?? DEFAULT_SERVICE_OPTIONS.errorLogger,
       studioAppJsUrl: new URL(
         options?.studioAppJsUrl ?? DEFAULT_SERVICE_OPTIONS.studioAppJsUrl,
@@ -3388,9 +3388,7 @@ export class Service<RequestMeta = ExpressRequest>
       if (e instanceof ServiceError) {
         return e.toRawResponse();
       } else {
-        const message = this.options.canCopyUnknownErrorMessageToResponse(
-          reqMeta,
-        )
+        const message = this.options.canSendUnknownErrorMessage(reqMeta)
           ? `server error: ${e}`
           : "server error";
         return makeServerErrorResponse(message);
@@ -3466,7 +3464,7 @@ export class Service<RequestMeta = ExpressRequest>
 
 const DEFAULT_SERVICE_OPTIONS: ServiceOptions<unknown> = {
   keepUnrecognizedValues: false,
-  canCopyUnknownErrorMessageToResponse: () => false,
+  canSendUnknownErrorMessage: () => false,
   errorLogger: (error: unknown, method: Method<unknown, unknown>) => {
     console.error(`Error in method ${method.name}:`, error);
   },
