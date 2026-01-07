@@ -3141,7 +3141,8 @@ export interface ServiceOptions<RequestMeta = ExpressRequest> {
    * The callback receives the error object, the method being executed, the
    * request that triggered the error, and the request metadata.
    *
-   * Defaults to a no-op function.
+   * Defaults to function which logs the method name and error message via
+   * `console.error()`.
    */
   errorLogger: <Request>(
     throwable: any,
@@ -3466,7 +3467,9 @@ export class Service<RequestMeta = ExpressRequest>
 const DEFAULT_SERVICE_OPTIONS: ServiceOptions<unknown> = {
   keepUnrecognizedValues: false,
   canCopyUnknownErrorMessageToResponse: () => false,
-  errorLogger: () => {},
+  errorLogger: (error: unknown, method: Method<unknown, unknown>) => {
+    console.error(`Error in method ${method.name}:`, error);
+  },
   studioAppJsUrl:
     "https://cdn.jsdelivr.net/npm/skir-studio/dist/skir-studio-standalone.js",
 };
