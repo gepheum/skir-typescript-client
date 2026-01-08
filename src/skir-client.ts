@@ -2861,11 +2861,11 @@ function getStudioHtml(studioAppJsUrl: string): string {
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>RESTudio</title>
+    <title>Skir Studio</title>
     <script src="${studioAppJsUrl}"></script>
   </head>
   <body style="margin: 0; padding: 0;">
-    <restudio-app></restudio-app>
+    <skir-studio-app></skir-studio-app>
   </body>
 </html>
 `;
