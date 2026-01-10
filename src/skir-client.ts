@@ -3106,6 +3106,7 @@ export interface RequestHandler<RequestMeta = ExpressRequest> {
    */
   handleRequest(reqBody: string, reqMeta: RequestMeta): Promise<RawResponse>;
 }
+
 /** Configuration options for a Skir service. */
 export interface ServiceOptions<RequestMeta = ExpressRequest> {
   /**
@@ -3122,34 +3123,34 @@ export interface ServiceOptions<RequestMeta = ExpressRequest> {
   keepUnrecognizedValues: boolean;
 
   /**
-   * Predicate that determines whether the message of an unknown error (i.e. not
-   * a `ServiceError`) should be sent to the client.
+   * Whether the message of an unknown error (i.e. not a `ServiceError`) can be
+   * sent to the client in the response body, which can help with debugging.
    *
    * By default, unknown errors are masked and the client receives a generic
    * 'server error' message with status 500. This is to prevent leaking
    * sensitive information to the client.
    *
-   * You can enable this for debugging purposes or if you are sure that your
-   * error messages are safe to expose.
+   * You can enable this if your server is internal or if you are sure that your
+   * error messages are safe to expose. By passing a predicate instead of true
+   * or false, you can control on a per-error basis whether to expose the error
+   * message; for example, you can send error messages only if the user is an
+   * admin.
+   *
+   * Defaults to `false`.
    */
-  canSendUnknownErrorMessage: (reqMeta: RequestMeta) => boolean;
+  canSendUnknownErrorMessage:
+    | boolean
+    | ((errorInfo: MethodErrorInfo<RequestMeta, unknown>) => boolean);
 
   /**
    * Callback invoked whenever an error is thrown during method execution.
    *
    * Use this to log errors for monitoring, debugging, or alerting purposes.
-   * The callback receives the error object, the method being executed, the
-   * request that triggered the error, and the request metadata.
    *
    * Defaults to function which logs the method name and error message via
    * `console.error()`.
    */
-  errorLogger: <Request>(
-    throwable: any,
-    method: Method<Request, unknown>,
-    req: Request,
-    reqMeta: RequestMeta,
-  ) => void;
+  errorLogger: (errorInfo: MethodErrorInfo<RequestMeta, unknown>) => void;
 
   /**
    * URL to the JavaScript file for the Skir Studio app.
@@ -3158,6 +3159,23 @@ export interface ServiceOptions<RequestMeta = ExpressRequest> {
    * It is served when the service receives a request at '${serviceUrl}?studio'.
    */
   studioAppJsUrl: string;
+}
+
+/**
+ * Information about an error thrown during the execution of a method on the
+ * server side.
+ */
+interface MethodErrorInfo<RequestMeta, Request> {
+  /** The error thrown during the execution of the method. */
+  readonly error: any;
+  readonly method: Method<Request, unknown>;
+  readonly request: Request;
+  /**
+   * Metadata coming from the HTTP headers of the request.
+   * Undefined if the error was thrown in the execution of the function passed
+   * to `withRequestMeta()`.
+   */
+  readonly reqMeta: RequestMeta | undefined;
 }
 
 /**
@@ -3189,7 +3207,7 @@ export interface ServiceOptions<RequestMeta = ExpressRequest> {
  * installServiceOnExpressApp(app, '/api', service, text, json);
  * ```
  *
- * ### Approach 2: Use a simplified custom type (recommended for testing)
+ * ### Approach 2: Use a simplified custom type
  *
  * Set `RequestMeta` to a minimal type containing only what your service needs.
  * Use `withRequestMeta()` to extract this data from the framework request when
@@ -3251,6 +3269,16 @@ export class Service<RequestMeta = ExpressRequest>
   async handleRequest(
     reqBody: string,
     reqMeta: RequestMeta,
+  ): Promise<RawResponse> {
+    return this.doHandleRequest(reqBody, reqMeta, (m) => m);
+  }
+
+  private async doHandleRequest<OriginalRequestMeta>(
+    reqBody: string,
+    originalReqMeta: OriginalRequestMeta,
+    transformReqMeta: (
+      m: OriginalRequestMeta,
+    ) => RequestMeta | Promise<RequestMeta>,
   ): Promise<RawResponse> {
     if (reqBody === "" || reqBody === "list") {
       const json = {
@@ -3381,14 +3409,26 @@ export class Service<RequestMeta = ExpressRequest>
     }
 
     let res: unknown;
+    let reqMeta: RequestMeta | undefined;
     try {
+      reqMeta = await Promise.resolve(transformReqMeta(originalReqMeta));
       res = await methodImpl.impl(req, reqMeta);
     } catch (e) {
-      this.options.errorLogger(e, methodImpl.method, req, reqMeta);
+      const errorInfo: MethodErrorInfo<RequestMeta, unknown> = {
+        error: e,
+        method: methodImpl.method,
+        request: req,
+        reqMeta: reqMeta,
+      };
+      this.options.errorLogger(errorInfo);
       if (e instanceof ServiceError) {
         return e.toRawResponse();
       } else {
-        const message = this.options.canSendUnknownErrorMessage(reqMeta)
+        let { canSendUnknownErrorMessage } = this.options;
+        if (typeof canSendUnknownErrorMessage !== "boolean") {
+          canSendUnknownErrorMessage = canSendUnknownErrorMessage(errorInfo);
+        }
+        const message = canSendUnknownErrorMessage
           ? `server error: ${e}`
           : "server error";
         return makeServerErrorResponse(message);
@@ -3443,15 +3483,14 @@ export class Service<RequestMeta = ExpressRequest>
   withRequestMeta<NewRequestMeta>(
     transformFn: (
       reqMeta: NewRequestMeta,
-    ) => Promise<RequestMeta> | RequestMeta,
+    ) => RequestMeta | Promise<RequestMeta>,
   ): RequestHandler<NewRequestMeta> {
     return {
       handleRequest: async (
         reqBody: string,
         reqMeta: NewRequestMeta,
       ): Promise<RawResponse> => {
-        const transformedMeta = await Promise.resolve(transformFn(reqMeta));
-        return this.handleRequest(reqBody, transformedMeta);
+        return this.doHandleRequest(reqBody, reqMeta, transformFn);
       },
     };
   }
@@ -3464,9 +3503,9 @@ export class Service<RequestMeta = ExpressRequest>
 
 const DEFAULT_SERVICE_OPTIONS: ServiceOptions<unknown> = {
   keepUnrecognizedValues: false,
-  canSendUnknownErrorMessage: () => false,
-  errorLogger: (error: unknown, method: Method<unknown, unknown>) => {
-    console.error(`Error in method ${method.name}:`, error);
+  canSendUnknownErrorMessage: false,
+  errorLogger: (errorInfo: MethodErrorInfo<unknown, unknown>) => {
+    console.error(`Error in method ${errorInfo.method.name}:`, errorInfo.error);
   },
   studioAppJsUrl:
     "https://cdn.jsdelivr.net/npm/skir-studio/dist/skir-studio-standalone.js",
