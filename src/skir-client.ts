@@ -2856,6 +2856,9 @@ function makeServerErrorResponse(data: string, statusCode = 500): RawResponse {
 function getStudioHtml(studioAppJsUrl: string): string {
   // Copied from
   //   https://github.com/gepheum/skir-studio/blob/main/index.jsdeliver.html
+
+  // 'studioAppJsUrl' is produced by new URL(...).toString() so it can't contain
+  // any special characters that need escaping in HTML.
   return `<!DOCTYPE html>
 
 <html>
