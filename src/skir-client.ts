@@ -3176,7 +3176,7 @@ interface MethodErrorInfo<RequestMeta, Request> {
   /**
    * Metadata coming from the HTTP headers of the request.
    * Undefined if the error was thrown in the execution of the function passed
-   * to `withRequestMeta()`.
+   * to `withMetaTransformer()`.
    */
   readonly reqMeta: RequestMeta | undefined;
 }
@@ -3213,8 +3213,8 @@ interface MethodErrorInfo<RequestMeta, Request> {
  * ### Approach 2: Use a simplified custom type
  *
  * Set `RequestMeta` to a minimal type containing only what your service needs.
- * Use `withRequestMeta()` to extract this data from the framework request when
- * installing the service.
+ * Use `withMetaTransformer()` to extract this data from the framework request
+ * when installing the service.
  *
  * ```typescript
  * const service = new Service<{ isAdmin: boolean }>();
@@ -3225,7 +3225,7 @@ interface MethodErrorInfo<RequestMeta, Request> {
  * });
  *
  * // Adapt to Express when installing
- * const handler = service.withRequestMeta((req: ExpressRequest) => ({
+ * const handler = service.withMetaTransformer((req: ExpressRequest) => ({
  *   isAdmin: req.user?.role === 'admin'
  * }));
  * installServiceOnExpressApp(app, '/api', handler, text, json);
@@ -3477,21 +3477,23 @@ export class Service<RequestMeta = ExpressRequest>
    * });
    *
    * // Adapt it to work with Express
-   * const expressHandler = service.withRequestMeta((req: ExpressRequest) => ({
-   *   isAdmin: req.user?.role === 'admin'
-   * }));
+   * const expressHandler = service.withMetaTransformer(
+   *   (req: ExpressRequest) => ({
+   *     isAdmin: req.user?.role === 'admin'
+   *   })
+   * );
    * installServiceOnExpressApp(app, '/api', expressHandler, text, json);
    * ```
    */
-  withRequestMeta<NewRequestMeta>(
+  withMetaTransformer<OriginalRequestMeta>(
     transformFn: (
-      reqMeta: NewRequestMeta,
+      reqMeta: OriginalRequestMeta,
     ) => RequestMeta | Promise<RequestMeta>,
-  ): RequestHandler<NewRequestMeta> {
+  ): RequestHandler<OriginalRequestMeta> {
     return {
       handleRequest: async (
         reqBody: string,
-        reqMeta: NewRequestMeta,
+        reqMeta: OriginalRequestMeta,
       ): Promise<RawResponse> => {
         return this.doHandleRequest(reqBody, reqMeta, transformFn);
       },
