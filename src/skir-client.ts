@@ -2309,7 +2309,7 @@ class StructSerializerImpl<T = unknown>
         name: f.name,
         number: f.number,
         type: f.serializer.typeSignature,
-        doc: f.doc ? f.doc : undefined,
+        doc: emptyToUndefined(f.doc),
       })),
     };
   }
@@ -2578,7 +2578,7 @@ class EnumSerializerImpl<T = unknown>
           const result = {
             name: f.name,
             number: f.number,
-            doc: f.doc ? f.doc : undefined,
+            doc: emptyToUndefined(f.doc),
           };
           const type = f?.serializer?.typeSignature;
           return type ? { ...result, type: type } : result;
@@ -3291,7 +3291,7 @@ export class Service<RequestMeta = ExpressRequest>
           request: methodImpl.method.requestSerializer.typeDescriptor.asJson(),
           response:
             methodImpl.method.responseSerializer.typeDescriptor.asJson(),
-          doc: methodImpl.method.doc,
+          doc: emptyToUndefined(methodImpl.method.doc),
         })),
       };
       const jsonCode = JSON.stringify(json, undefined, "  ");
@@ -3960,4 +3960,8 @@ function makeSearchMethod(field: StructFieldSpec): (key: unknown) => unknown {
     [_: string]: unknown;
   }
   return Class.prototype.ret;
+}
+
+function emptyToUndefined(str: string): string | undefined {
+  return str ? str : undefined;
 }
