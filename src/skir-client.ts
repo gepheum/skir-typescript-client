@@ -3295,7 +3295,7 @@ export class Service<RequestMeta = ExpressRequest>
         })),
       };
       const jsonCode = JSON.stringify(json, undefined, "  ");
-      return makeOkHtmlResponse(jsonCode);
+      return makeOkJsonResponse(jsonCode);
     } else if (reqBody === "studio") {
       const studioHtml = getStudioHtml(this.options.studioAppJsUrl);
       return makeOkHtmlResponse(studioHtml);
