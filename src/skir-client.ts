@@ -1149,7 +1149,7 @@ abstract class AbstractSerializer<T> implements InternalSerializer<T> {
 
 // The UNKNOWN variant is common to all enums.
 const UNKNOWN_VARIANT_DEFINITION: VariantDefinition = {
-  name: "?",
+  name: "UNKNOWN",
   number: 0,
 };
 
@@ -1181,7 +1181,7 @@ export function parseTypeDescriptorFromJson(json: Json): TypeDescriptor {
       case "enum":
         serializer = new EnumSerializerImpl<Json>((o: unknown) =>
           o instanceof UnrecognizedEnum
-            ? Object.freeze({ kind: "?" })
+            ? Object.freeze({ kind: "UNKNOWN" })
             : (Object.freeze({
                 kind: (o as AnyRecord).kind,
                 value: (o as AnyRecord).value,
@@ -2365,7 +2365,7 @@ class EnumSerializerImpl<T = unknown>
 {
   constructor(readonly createFn: (initializer: unknown) => T) {
     super();
-    this.defaultValue = createFn("?");
+    this.defaultValue = createFn("UNKNOWN");
   }
 
   readonly kind = "enum";
@@ -2388,8 +2388,8 @@ class EnumSerializerImpl<T = unknown>
       return unrecognized.json;
     }
     const kind = (input as AnyRecord).kind as string;
-    if (kind === "?") {
-      return flavor === "readable" ? "?" : 0;
+    if (kind === "UNKNOWN") {
+      return flavor === "readable" ? "UNKNOWN" : 0;
     }
     const variant = this.variantMapping[kind]!;
     const { serializer } = variant;
@@ -2468,7 +2468,7 @@ class EnumSerializerImpl<T = unknown>
       return;
     }
     const kind = (input as AnyRecord).kind as string;
-    if (kind === "?") {
+    if (kind === "UNKNOWN") {
       stream.writeUint8(0);
       return;
     }
@@ -2478,7 +2478,7 @@ class EnumSerializerImpl<T = unknown>
       // A wrapper variant.
       const value = (input as AnyRecord).value;
       if (number < 5) {
-        // The number can't be 0 or else kind == "?".
+        // The number can't be 0 or else kind == "UNKNOWN".
         stream.writeUint8(250 + number);
       } else {
         stream.writeUint8(248);
@@ -2551,7 +2551,7 @@ class EnumSerializerImpl<T = unknown>
 
   isDefault(input: T): boolean {
     type Kinded = { kind: string };
-    return (input as Kinded).kind === "?" && !(input as AnyRecord)["^"];
+    return (input as Kinded).kind === "UNKNOWN" && !(input as AnyRecord)["^"];
   }
 
   getVariant<K extends string | number>(key: K): EnumVariantResult<T, K> {
@@ -3632,7 +3632,7 @@ type TypeSpec =
 
 // The UNKNOWN variant is common to all enums.
 const UNKNOWN_VARIANT_SPEC: EnumVariantSpec = {
-  name: "?",
+  name: "UNKNOWN",
   number: 0,
 };
 
@@ -3690,7 +3690,7 @@ export function _initModuleClasses(
           if (variant.type) {
             continue;
           }
-          const property = enumConstantNameToProperty(variant.name);
+          const property = variant.name;
           clazz[property] = new record.ctor(PRIVATE_KEY, variant.name);
         }
         // Define the 'create' static factory function.
@@ -3778,7 +3778,7 @@ export function _initModuleClasses(
             : {
                 name: f.name,
                 number: f.number,
-                constant: clazz[enumConstantNameToProperty(f.name)],
+                constant: clazz[f.name],
                 doc: f.doc ?? "",
               },
         );
@@ -3799,10 +3799,6 @@ export function _initModuleClasses(
   }
 }
 
-function enumConstantNameToProperty(name: string): string {
-  return name === "?" ? "UNKNOWN" : name;
-}
-
 function makeCreateEnumFunction(
   enumSpec: EnumSpec,
 ): (initializer: unknown) => unknown {
@@ -3814,16 +3810,14 @@ function makeCreateEnumFunction(
       return initializer;
     }
     if (typeof initializer === "string") {
-      const maybeResult = (ctor as unknown as AnyRecord)[
-        enumConstantNameToProperty(initializer)
-      ];
+      const maybeResult = (ctor as unknown as AnyRecord)[initializer];
       if (maybeResult instanceof ctor) {
         return maybeResult;
       }
       throw new Error(`Constant not found: ${initializer}`);
     }
     if (initializer instanceof UnrecognizedEnum) {
-      return new ctor(privateKey, "?", undefined, initializer);
+      return new ctor(privateKey, "UNKNOWN", undefined, initializer);
     }
     const kind = (initializer as { kind: string }).kind;
     if (kind === undefined) {
