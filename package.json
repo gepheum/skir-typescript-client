@@ -38,13 +38,13 @@
     "lint:fix": "eslint src/**/*.ts --fix"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
-    "@types/mocha": "^10.0.1",
+    "@eslint/js": "^10.0.1",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.6.0",
-    "@typescript-eslint/eslint-plugin": "^8.50.1",
-    "@typescript-eslint/parser": "^8.50.1",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
     "buckwheat": "^1.1.2",
-    "eslint": "^9.39.2",
+    "eslint": "^10.0.1",
     "express": "^5.1.0",
     "mocha": "^11.7.5",
     "prettier": "^3.2.4",
@@ -52,7 +52,11 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.2.2",
-    "typescript-eslint": "^8.50.1"
+    "typescript-eslint": "^8.56.0"
+  },
+  "overrides": {
+    "diff": "^8.0.3",
+    "minimatch": "^10.2.2"
   },
   "dependencies": {
     "@types/express": "^5.0.1"
