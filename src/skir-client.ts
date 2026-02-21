@@ -3284,7 +3284,7 @@ export class Service<RequestMeta = ExpressRequest>
       m: OriginalRequestMeta,
     ) => RequestMeta | Promise<RequestMeta>,
   ): Promise<RawResponse> {
-    if (reqBody === "" || reqBody === "list") {
+    if (reqBody === "list") {
       const json = {
         methods: Object.values(this.methodImpls).map((methodImpl) => ({
           method: methodImpl.method.name,
@@ -3297,7 +3297,7 @@ export class Service<RequestMeta = ExpressRequest>
       };
       const jsonCode = JSON.stringify(json, undefined, "  ");
       return makeOkJsonResponse(jsonCode);
-    } else if (reqBody === "studio") {
+    } else if (reqBody === "" || reqBody === "studio") {
       const studioHtml = getStudioHtml(this.options.studioAppJsUrl);
       return makeOkHtmlResponse(studioHtml);
     }
