@@ -1,6 +1,6 @@
 {
   "name": "skir-client",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "",
   "homepage": "https://github.com/gepheum/skir-typescript-client#readme",
   "bugs": {
@@ -57,7 +57,7 @@
   "overrides": {
     "diff": "^8.0.3",
     "minimatch": "^10.2.2",
-    "serialize-javascript": "^7.0.3"
+    "serialize-javascript": "^7.0.4"
   },
   "dependencies": {
     "@types/express": "^5.0.1"

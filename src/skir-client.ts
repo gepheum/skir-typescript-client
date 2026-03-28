@@ -1179,14 +1179,18 @@ export function parseTypeDescriptorFromJson(json: Json): TypeDescriptor {
         );
         break;
       case "enum":
-        serializer = new EnumSerializerImpl<Json>((o: unknown) =>
-          o instanceof UnrecognizedEnum
-            ? Object.freeze({ kind: "UNKNOWN" })
-            : (Object.freeze({
-                kind: (o as AnyRecord).kind,
-                value: (o as AnyRecord).value,
-              }) as Json),
-        );
+        serializer = new EnumSerializerImpl<Json>((o: unknown) => {
+          if (o instanceof UnrecognizedEnum) {
+            return Object.freeze({ kind: "UNKNOWN" });
+          }
+          if (typeof o === "string") {
+            return Object.freeze({ kind: o }) as Json;
+          } else {
+            const kind = (o as AnyRecord).kind;
+            const value = (o as AnyRecord).value;
+            return Object.freeze({ kind, value }) as Json;
+          }
+        });
         break;
     }
     const recordBundle: RecordBundle = {
@@ -1405,7 +1409,7 @@ abstract class FloatSerializer<
     return Number(decodeNumber(stream));
   }
 
-  isDefault(input: number): boolean {
+  override isDefault(input: number): boolean {
     // Needs to work for NaN.
     return input === 0;
   }
@@ -1580,7 +1584,7 @@ class TimestampSerializer extends AbstractPrimitiveSerializer<"timestamp"> {
     return Timestamp.fromUnixMillis(Number(unixMillis));
   }
 
-  isDefault(input: Timestamp): boolean {
+  override isDefault(input: Timestamp): boolean {
     return !input.unixMillis;
   }
 }
@@ -1702,7 +1706,7 @@ class ByteStringSerializer extends AbstractPrimitiveSerializer<"bytes"> {
     );
   }
 
-  isDefault(input: ByteString): boolean {
+  override isDefault(input: ByteString): boolean {
     return !input.byteLength;
   }
 }
@@ -1797,7 +1801,7 @@ class ArraySerializerImpl<Item>
     return freezeArray(result);
   }
 
-  isDefault(input: ReadonlyArray<Item>): boolean {
+  override isDefault(input: ReadonlyArray<Item>): boolean {
     return !input.length;
   }
 
@@ -1856,7 +1860,7 @@ class OptionalSerializerImpl<Other>
     return this.otherSerializer.decode(stream);
   }
 
-  isDefault(input: Other | null): boolean {
+  override isDefault(input: Other | null): boolean {
     return input === null;
   }
 
@@ -2252,7 +2256,7 @@ class StructSerializerImpl<T = unknown>
     return 0;
   }
 
-  isDefault(input: T): boolean {
+  override isDefault(input: T): boolean {
     if (input === this.defaultValue) {
       return true;
     }
@@ -2549,7 +2553,7 @@ class EnumSerializerImpl<T = unknown>
     };
   }
 
-  isDefault(input: T): boolean {
+  override isDefault(input: T): boolean {
     type Kinded = { kind: string };
     return (input as Kinded).kind === "UNKNOWN" && !(input as AnyRecord)["^"];
   }

@@ -1009,3 +1009,290 @@ describe("bytes array serializer", () => {
     bytesAsBase16: "f8f5076c696768742077f5086c6967687420776f",
   });
 });
+
+describe("complex nested types with enums", () => {
+  it("can transform parsed type descriptor", () => {
+    const typeDefinitionJson = {
+      type: {
+        kind: "record",
+        value: "service.skir:CalculateMetricsRequest",
+      },
+      records: [
+        {
+          kind: "struct",
+          id: "service.skir:CalculateMetricsRequest",
+          doc: "Request to calculate basic metrics for a shape",
+          fields: [
+            {
+              name: "shape",
+              number: 0,
+              type: {
+                kind: "record",
+                value: "geometry.skir:Shape",
+              },
+              doc: "The shape to analyze",
+            },
+            {
+              name: "unit",
+              number: 1,
+              type: {
+                kind: "record",
+                value: "geometry.skir:MeasurementUnit",
+              },
+              doc: "Unit for the results",
+            },
+          ],
+        },
+        {
+          kind: "enum",
+          id: "geometry.skir:Shape",
+          doc: "Geometric shape - demonstrates enum with wrapper variants",
+          variants: [
+            {
+              name: "triangle",
+              number: 1,
+              doc: "A triangle defined by three vertices",
+              type: {
+                kind: "record",
+                value: "geometry.skir:Shape.Triangle",
+              },
+            },
+            {
+              name: "circle",
+              number: 2,
+              doc: "A circle defined by center and radius",
+              type: {
+                kind: "record",
+                value: "geometry.skir:Shape.Circle",
+              },
+            },
+            {
+              name: "rectangle",
+              number: 3,
+              doc: "A rectangle defined by top-left corner and dimensions",
+              type: {
+                kind: "record",
+                value: "geometry.skir:Shape.Rectangle",
+              },
+            },
+            {
+              name: "polygon",
+              number: 4,
+              doc: "A general polygon defined by its vertices",
+              type: {
+                kind: "record",
+                value: "geometry.skir:Shape.Polygon",
+              },
+            },
+          ],
+        },
+        {
+          kind: "struct",
+          id: "geometry.skir:Shape.Triangle",
+          fields: [
+            {
+              name: "vertices",
+              number: 0,
+              type: {
+                kind: "array",
+                value: {
+                  item: {
+                    kind: "record",
+                    value: "geometry.skir:Point",
+                  },
+                },
+              },
+              doc: "The three corner points",
+            },
+          ],
+        },
+        {
+          kind: "struct",
+          id: "geometry.skir:Point",
+          doc: "A point in 2D space",
+          fields: [
+            {
+              name: "x",
+              number: 0,
+              type: {
+                kind: "primitive",
+                value: "float64",
+              },
+            },
+            {
+              name: "y",
+              number: 1,
+              type: {
+                kind: "primitive",
+                value: "float64",
+              },
+            },
+          ],
+        },
+        {
+          kind: "struct",
+          id: "geometry.skir:Shape.Circle",
+          fields: [
+            {
+              name: "center",
+              number: 0,
+              type: {
+                kind: "record",
+                value: "geometry.skir:Point",
+              },
+            },
+            {
+              name: "radius",
+              number: 1,
+              type: {
+                kind: "primitive",
+                value: "float64",
+              },
+            },
+          ],
+        },
+        {
+          kind: "struct",
+          id: "geometry.skir:Shape.Rectangle",
+          fields: [
+            {
+              name: "top_left",
+              number: 0,
+              type: {
+                kind: "record",
+                value: "geometry.skir:Point",
+              },
+            },
+            {
+              name: "width",
+              number: 1,
+              type: {
+                kind: "primitive",
+                value: "float64",
+              },
+            },
+            {
+              name: "height",
+              number: 2,
+              type: {
+                kind: "primitive",
+                value: "float64",
+              },
+            },
+          ],
+        },
+        {
+          kind: "struct",
+          id: "geometry.skir:Shape.Polygon",
+          fields: [
+            {
+              name: "vertices",
+              number: 0,
+              type: {
+                kind: "array",
+                value: {
+                  item: {
+                    kind: "record",
+                    value: "geometry.skir:Point",
+                  },
+                },
+              },
+              doc: "Vertices in order (at least 3 required)",
+            },
+          ],
+        },
+        {
+          kind: "enum",
+          id: "geometry.skir:MeasurementUnit",
+          doc: "Unit of measurement for distances and areas",
+          variants: [
+            {
+              name: "METERS",
+              number: 1,
+              doc: "Metric system (meters, square meters)",
+            },
+            {
+              name: "FEET",
+              number: 2,
+              doc: "Imperial system (feet, square feet)",
+            },
+            {
+              name: "custom",
+              number: 3,
+              doc: "Custom unit with conversion factor to meters",
+              type: {
+                kind: "primitive",
+                value: "float64",
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const typeDescriptor = skir.parseTypeDescriptorFromJson(
+      typeDefinitionJson as unknown as skir.Json,
+    );
+
+    // Test with empty array (default value)
+    const resultFromEmpty = typeDescriptor.transform([], "readable");
+    expect(resultFromEmpty).toMatch({});
+
+    // Test with default value in readable format
+    const resultFromEmptyObj = typeDescriptor.transform({}, "dense");
+    expect(resultFromEmptyObj).toMatch([]);
+
+    // Test with actual data containing constant enum variant
+    const denseWithConstant = [
+      [2, [[], 5]], // shape: circle with center (0,0) and radius 5
+      1, // unit: METERS (constant variant)
+    ];
+    const readableResult = typeDescriptor.transform(
+      denseWithConstant,
+      "readable",
+    );
+    expect(readableResult).toMatch({
+      shape: {
+        kind: "circle",
+        value: {
+          // center is omitted because it's default (x: 0, y: 0)
+          radius: 5,
+        },
+      },
+      unit: "METERS",
+    });
+
+    // Test with wrapper enum variant
+    const denseWithWrapper = [
+      [2, [[1, 2], 5]], // shape: circle with center (1, 2) and radius 5
+      [3, 2.5], // unit: custom variant with value 2.5
+    ];
+    const readableWithWrapper = typeDescriptor.transform(
+      denseWithWrapper,
+      "readable",
+    );
+    expect(readableWithWrapper).toMatch({
+      shape: {
+        kind: "circle",
+        value: {
+          center: {
+            x: 1,
+            y: 2,
+          },
+          radius: 5,
+        },
+      },
+      unit: {
+        kind: "custom",
+        value: 2.5,
+      },
+    });
+
+    // Test roundtrip: dense -> readable -> dense
+    const roundtrip = typeDescriptor.transform(
+      typeDescriptor.transform(denseWithWrapper, "readable"),
+      "dense",
+    );
+    expect(roundtrip).toMatch(denseWithWrapper);
+  });
+});
