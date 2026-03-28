@@ -1235,12 +1235,24 @@ describe("complex nested types with enums", () => {
     );
 
     // Test with empty array (default value)
-    const resultFromEmpty = typeDescriptor.transform([], "readable");
-    expect(resultFromEmpty).toMatch({});
+    {
+      const resultFromEmpty = typeDescriptor.transform([], "readable");
+      expect(JSON.stringify(resultFromEmpty)).toMatch("{}");
+    }
+    {
+      const resultFromEmpty = typeDescriptor.transform([], "dense");
+      expect(JSON.stringify(resultFromEmpty)).toMatch("[]");
+    }
+    {
+      const resultFromEmpty = typeDescriptor.transform([], "bytes");
+      expect(skir.ByteString.sliceOf(resultFromEmpty).toBase16()).toMatch(
+        "736b6972f6",
+      );
+    }
 
     // Test with default value in readable format
     const resultFromEmptyObj = typeDescriptor.transform({}, "dense");
-    expect(resultFromEmptyObj).toMatch([]);
+    expect(JSON.stringify(resultFromEmptyObj)).toMatch("[]");
 
     // Test with actual data containing constant enum variant
     const denseWithConstant = [
