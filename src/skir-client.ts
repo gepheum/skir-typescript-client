@@ -2762,13 +2762,13 @@ function toStringImpl<T>(value: T): string {
 }
 
 // =============================================================================
-// Skir services
+// SkirRPC services
 // =============================================================================
 
 /** Metadata of an HTTP request sent by a service client. */
 export type RequestMeta = Omit<RequestInit, "body" | "method">;
 
-/** Sends RPCs to a skir service. */
+/** Sends RPCs to a SkirRPC service. */
 export class ServiceClient {
   constructor(
     private readonly serviceUrl: string,
@@ -2869,7 +2869,7 @@ function getStudioHtml(studioAppJsUrl: string): string {
   <head>
     <meta charset="utf-8" />
     <title>RPC Studio</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐙</text></svg>">
     <script src="${studioAppJsUrl}"></script>
   </head>
   <body style="margin: 0; padding: 0;">
@@ -3115,7 +3115,7 @@ export interface RequestHandler<RequestMeta = ExpressRequest> {
   handleRequest(reqBody: string, reqMeta: RequestMeta): Promise<RawResponse>;
 }
 
-/** Configuration options for a Skir service. */
+/** Configuration options for a SkirRPC service. */
 export interface ServiceOptions<RequestMeta = ExpressRequest> {
   /**
    * Whether to keep unrecognized values when deserializing requests.
@@ -3163,7 +3163,7 @@ export interface ServiceOptions<RequestMeta = ExpressRequest> {
   /**
    * URL to the JavaScript file for the Skir Studio app.
    *
-   * Skir Studio is a web interface for exploring and testing your Skir service.
+   * Skir Studio is a web interface for exploring and testing your SkirRPC service.
    * It is served when the service receives a request at '${serviceUrl}?studio'.
    */
   studioAppJsUrl: string;
@@ -3187,7 +3187,7 @@ interface MethodErrorInfo<RequestMeta, Request> {
 }
 
 /**
- * Implementation of a skir service.
+ * Implementation of a SkirRPC service.
  *
  * Usage: call `.addMethod()` to register methods, then install the service on
  * an HTTP server either by:
