@@ -1188,7 +1188,12 @@ export function parseTypeDescriptorFromJson(json: Json): TypeDescriptor {
           } else {
             const kind = (o as AnyRecord).kind;
             const value = (o as AnyRecord).value;
-            return Object.freeze({ kind, value }) as Json;
+            const unrecognized = (o as AnyRecord)["^"];
+            const ret = { kind, value } as Json;
+            if (unrecognized) {
+              (ret as AnyRecord)["^"] = unrecognized;
+            }
+            return Object.freeze(ret);
           }
         });
         break;
@@ -2426,7 +2431,8 @@ class EnumSerializerImpl<T = unknown>
           : this.createFn(new UnrecognizedEnum(this.token, copyJson(json)));
       }
       if (variant.serializer) {
-        throw new Error(`refers to a wrapper variant: ${json}`);
+        // A constant variant became a wrapper variant.
+        return variant.wrap(variant.serializer.defaultValue);
       }
       return variant.constant;
     }
@@ -2454,7 +2460,14 @@ class EnumSerializerImpl<T = unknown>
     }
     const { serializer } = variant;
     if (!serializer) {
-      throw new Error(`refers to a constant variant: ${json}`);
+      // A wrapper variant became a constant variant.
+      if (!keep) {
+        return variant.constant;
+      }
+      return this.createFn({
+        kind: variant.name,
+        "^": new UnrecognizedEnum(this.token, copyJson(json), undefined),
+      });
     }
     return variant.wrap(serializer.fromJson(valueAsJson, keep));
   }
@@ -2516,7 +2529,8 @@ class EnumSerializerImpl<T = unknown>
         }
       }
       if (variant.serializer) {
-        throw new Error(`refers to a wrapper variant: ${number}`);
+        // A constant variant became a wrapper variant.
+        return variant.wrap(variant.serializer.defaultValue);
       }
       return variant.constant;
     } else {
@@ -2540,7 +2554,17 @@ class EnumSerializerImpl<T = unknown>
       }
       const { serializer } = variant;
       if (!serializer) {
-        throw new Error(`refers to a constant variant: ${number}`);
+        decodeUnused(stream);
+        // A wrapper variant became a constant variant.
+        if (!stream.keepUnrecognizedValues) {
+          return variant.constant;
+        }
+        const { offset } = stream;
+        const bytes = ByteString.sliceOf(stream.buffer, startOffset, offset);
+        return this.createFn({
+          kind: variant.name,
+          "^": new UnrecognizedEnum(this.token, undefined, bytes),
+        });
       }
       return variant.wrap(serializer.decode(stream));
     }
@@ -3828,11 +3852,20 @@ function makeCreateEnumFunction(
     if (kind === undefined) {
       throw new Error("Missing entry: kind");
     }
+    const unrecognized = (initializer as AnyRecord)["^"] as
+      | UnrecognizedEnum
+      | undefined;
     const value = createValue(initializer);
     if (value === undefined) {
-      throw new Error(`Wrapper variant not found: ${kind}`);
+      const maybeConstant = (ctor as unknown as AnyRecord)[kind];
+      if (!(maybeConstant instanceof ctor)) {
+        throw new Error(`Wrapper variant not found: ${kind}`);
+      }
+      return unrecognized
+        ? new ctor(privateKey, kind, undefined, unrecognized)
+        : maybeConstant;
     }
-    return new ctor(privateKey, kind, value);
+    return new ctor(privateKey, kind, value, unrecognized);
   };
 }
 
