@@ -1188,11 +1188,7 @@ export function parseTypeDescriptorFromJson(json: Json): TypeDescriptor {
           } else {
             const kind = (o as AnyRecord).kind;
             const value = (o as AnyRecord).value;
-            const unrecognized = (o as AnyRecord)["^"];
             const ret = { kind, value } as Json;
-            if (unrecognized) {
-              (ret as AnyRecord)["^"] = unrecognized;
-            }
             return Object.freeze(ret);
           }
         });
