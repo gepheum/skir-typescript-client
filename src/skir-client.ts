@@ -2384,7 +2384,9 @@ class EnumSerializerImpl<T = unknown>
     const unrecognized = (input as AnyRecord)["^"] as
       | UnrecognizedEnum
       | undefined;
+    const kind = (input as AnyRecord).kind as string;
     if (
+      kind === "UNKNOWN" &&
       unrecognized &&
       unrecognized.json &&
       unrecognized.token === this.token
@@ -2392,7 +2394,6 @@ class EnumSerializerImpl<T = unknown>
       // Unrecognized variant.
       return unrecognized.json;
     }
-    const kind = (input as AnyRecord).kind as string;
     if (kind === "UNKNOWN") {
       return flavor === "readable" ? "UNKNOWN" : 0;
     }
@@ -2457,13 +2458,7 @@ class EnumSerializerImpl<T = unknown>
     const { serializer } = variant;
     if (!serializer) {
       // A wrapper variant became a constant variant.
-      if (!keep) {
-        return variant.constant;
-      }
-      return this.createFn({
-        kind: variant.name,
-        "^": new UnrecognizedEnum(this.token, copyJson(json), undefined),
-      });
+      return variant.constant;
     }
     return variant.wrap(serializer.fromJson(valueAsJson, keep));
   }
@@ -2471,7 +2466,9 @@ class EnumSerializerImpl<T = unknown>
   encode(input: T, stream: OutputStream): void {
     const unrecognized = //
       (input as AnyRecord)["^"] as UnrecognizedEnum | undefined;
+    const kind = (input as AnyRecord).kind as string;
     if (
+      kind === "UNKNOWN" &&
       unrecognized &&
       unrecognized.bytes &&
       unrecognized.token === this.token
@@ -2480,7 +2477,6 @@ class EnumSerializerImpl<T = unknown>
       stream.putBytes(unrecognized.bytes);
       return;
     }
-    const kind = (input as AnyRecord).kind as string;
     if (kind === "UNKNOWN") {
       stream.writeUint8(0);
       return;
@@ -2552,15 +2548,7 @@ class EnumSerializerImpl<T = unknown>
       if (!serializer) {
         decodeUnused(stream);
         // A wrapper variant became a constant variant.
-        if (!stream.keepUnrecognizedValues) {
-          return variant.constant;
-        }
-        const { offset } = stream;
-        const bytes = ByteString.sliceOf(stream.buffer, startOffset, offset);
-        return this.createFn({
-          kind: variant.name,
-          "^": new UnrecognizedEnum(this.token, undefined, bytes),
-        });
+        return variant.constant;
       }
       return variant.wrap(serializer.decode(stream));
     }
