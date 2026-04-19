@@ -1386,29 +1386,4 @@ describe("enum name case-compatibility", () => {
       weekdaySerializer.toJson(result as unknown as WeekdayEnum, "dense"),
     ).toBe(2);
   });
-
-  it("parses UPPER_CASE wrapper kind in readable JSON", () => {
-    // Old serializers would emit {"kind":"CUSTOM","value":"foo"}.
-    const fromUpper = weekdaySerializer.fromJson({
-      kind: "CUSTOM",
-      value: "foo",
-    } as skir.Json);
-    const fromLower = weekdaySerializer.fromJson({
-      kind: "custom",
-      value: "foo",
-    } as skir.Json);
-    // Both should serialize identically in dense form.
-    expect(
-      weekdaySerializer.toJson(fromUpper as unknown as WeekdayEnum, "readable"),
-    ).toMatch(
-      weekdaySerializer.toJson(fromLower as unknown as WeekdayEnum, "readable"),
-    );
-    // The readable output should use the registered (lower_case) name.
-    expect(
-      weekdaySerializer.toJson(fromLower as unknown as WeekdayEnum, "readable"),
-    ).toMatch({
-      kind: "custom",
-      value: "foo",
-    });
-  });
 });

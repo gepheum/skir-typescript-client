@@ -2574,16 +2574,17 @@ class EnumSerializerImpl<T = unknown>
     for (const variant of variants) {
       this.variants.push(variant);
       this.variantMapping[variant.name] = variant;
-      // Register case aliases so that both UPPER_CASE and lower_case names are
-      // accepted when parsing readable JSON, regardless of which casing the
-      // code generator used when constructing the serializer.
-      const nameUpper = variant.name.toUpperCase();
-      if (nameUpper !== variant.name) {
-        this.variantMapping[nameUpper] = variant;
-      }
-      const nameLower = variant.name.toLowerCase();
-      if (nameLower !== variant.name) {
-        this.variantMapping[nameLower] = variant;
+      // Register case aliases for constant variants so that both UPPER_CASE
+      // and lower_case names are accepted when parsing readable JSON.
+      if (variant.serializer === undefined) {
+        const nameUpper = variant.name.toUpperCase();
+        if (nameUpper !== variant.name) {
+          this.variantMapping[nameUpper] = variant;
+        }
+        const nameLower = variant.name.toLowerCase();
+        if (nameLower !== variant.name) {
+          this.variantMapping[nameLower] = variant;
+        }
       }
       this.variantMapping[variant.number] = variant;
     }
