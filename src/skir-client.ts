@@ -2395,7 +2395,7 @@ class EnumSerializerImpl<T = unknown>
       return unrecognized.json;
     }
     if (kind === "UNKNOWN") {
-      return flavor === "readable" ? "UNKNOWN" : 0;
+      return flavor === "readable" ? "unknown" : 0;
     }
     const variant = this.variantMapping[kind]!;
     const { serializer } = variant;
@@ -2412,7 +2412,9 @@ class EnumSerializerImpl<T = unknown>
       }
     } else {
       // A constant variant.
-      return flavor === "readable" ? variant.name : variant.number;
+      return flavor === "readable"
+        ? variant.name.toLowerCase()
+        : variant.number;
     }
   }
 
@@ -2600,7 +2602,7 @@ class EnumSerializerImpl<T = unknown>
         .filter((f) => f.number)
         .map((f) => {
           const result = {
-            name: f.name,
+            name: f.name.toLowerCase(),
             number: f.number,
             doc: emptyToUndefined(f.doc),
           };

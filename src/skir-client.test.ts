@@ -1271,7 +1271,7 @@ describe("complex nested types with enums", () => {
           radius: 5,
         },
       },
-      unit: "METERS",
+      unit: "meters",
     });
 
     // Test with wrapper enum variant
