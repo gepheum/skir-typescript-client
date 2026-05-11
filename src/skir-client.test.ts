@@ -822,6 +822,16 @@ describe("string serializer", () => {
     'reserialize "\\uFFFF".repeat(5000)',
   );
   tester.deserializeZeroAndAssert((s) => s === "");
+
+  it("sanitizes lone surrogates when encoding to binary", () => {
+    // U+D800 is an unpaired surrogate. It is not a valid Unicode scalar value.
+    const bytes = serializer.toBytes("\uD800z").toBuffer();
+    expect(serializer.fromBytes(bytes)).toBe("\uFFFDz");
+  });
+
+  it("escapes lone surrogates in JSON serialization", () => {
+    expect(serializer.toJsonCode("\uD800z")).toBe('"\\ud800z"');
+  });
 });
 
 describe("bytes serializer", () => {
