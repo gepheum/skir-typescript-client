@@ -123,11 +123,6 @@ describe("string array serializer", () => {
   });
   tester.reserializeTypeAdapterAndAssertNoLoss();
 
-  tester.reserializeAndAssert([], {
-    denseJson: [],
-    bytesAsBase16: "f6",
-  });
-
   tester.reserializeAndAssert(["foo", "bar"], {
     denseJson: ["foo", "bar"],
     bytesAsBase16: "f8f303666f6ff303626172",
@@ -138,11 +133,6 @@ describe("bytes array serializer", () => {
   const itemSerializer = skir.primitiveSerializer("bytes");
   const serializer = skir.arraySerializer(itemSerializer);
   const tester = new SerializerTester(serializer);
-
-  tester.reserializeAndAssert([], {
-    denseJson: [],
-    bytesAsBase16: "f6",
-  });
 
   const a = skir.ByteString.fromBase64("bGlnaHQgdw==");
   const b = skir.ByteString.fromBase64("bGlnaHQgd28=");

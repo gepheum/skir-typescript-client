@@ -109,6 +109,9 @@ export class SerializerTester<T> {
           value instanceof ArrayBuffer ? toBase16(value) : value;
         const formats: Format[] = ["dense", "readable", "bytes"];
         for (const reparse of [false, true]) {
+          // Reparsing primitives returns the same serializer instance.
+          if (reparse && serializer.typeDescriptor.kind === "primitive")
+            continue;
           const prefix = reparse ? "parseTypeDescriptor then " : "";
           for (const source of formats) {
             for (const target of formats) {

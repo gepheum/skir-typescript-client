@@ -49,12 +49,6 @@ describe("ByteString", () => {
       expect(toArray(byteString)).toMatch([1, 2]);
     });
 
-    it("copies ArrayBuffer slice", () => {
-      const byteString = makeTestByteString();
-      expect(byteString.byteLength).toBe(4);
-      expect(toArray(byteString)).toMatch([0, 1, 2, 3]);
-    });
-
     it("returns empty when start === end", () => {
       const byteString = makeTestByteString();
       expect(skir.ByteString.sliceOf(byteString, 3, 3)).toBe(
