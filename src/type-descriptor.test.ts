@@ -4,7 +4,7 @@ import * as skir from "./skir-client.js";
 
 describe("complex nested types with enums", () => {
   it("can transform parsed type descriptor", () => {
-    const typeDefinitionJson = {
+    const typeDefinitionJson: skir.Json = {
       type: {
         kind: "record",
         value: "service.skir:CalculateMetricsRequest",
@@ -222,9 +222,7 @@ describe("complex nested types with enums", () => {
       ],
     };
 
-    const typeDescriptor = skir.parseTypeDescriptorFromJson(
-      typeDefinitionJson as unknown as skir.Json,
-    );
+    const typeDescriptor = skir.parseTypeDescriptorFromJson(typeDefinitionJson);
 
     // Test with empty array (default value)
     {
@@ -302,76 +300,35 @@ describe("complex nested types with enums", () => {
 });
 
 describe("enum name case-compatibility", () => {
-  // Build a minimal enum serializer with lower_case constant and wrapper names,
-  // mirroring what the code generator will produce after the casing change.
-  type WeekdayEnum = {
-    kind: string;
-    value?: unknown;
-    "^"?: unknown;
-  };
-
-  const weekdaySerializer = (() => {
-    // Parse a minimal type descriptor that sets up a simple enum with
-    // lower_case constant names and a lower_case wrapper variant name.
-    const typeDesc = skir.parseTypeDescriptorFromJson({
-      type: { kind: "record", value: "test.skir:Weekday" },
-      records: [
-        {
-          kind: "enum",
-          id: "test.skir:Weekday",
-          doc: "",
-          variants: [
-            { name: "monday", number: 1 },
-            { name: "tuesday", number: 2 },
-            {
-              name: "custom",
-              number: 3,
-              type: { kind: "primitive", value: "string" },
-            },
-          ],
-        },
-      ],
-    } as unknown as skir.Json);
-    return typeDesc as skir.TypeDescriptor & {
-      fromJson(j: skir.Json): WeekdayEnum;
-      toJson(v: WeekdayEnum, f?: skir.JsonFlavor): skir.Json;
-    };
-  })();
+  const weekday = skir.parseTypeDescriptorFromJson({
+    type: { kind: "record", value: "test.skir:Weekday" },
+    records: [
+      {
+        kind: "enum",
+        id: "test.skir:Weekday",
+        variants: [
+          { name: "monday", number: 1 },
+          { name: "tuesday", number: 2 },
+          {
+            name: "custom",
+            number: 3,
+            type: { kind: "primitive", value: "string" },
+          },
+        ],
+      },
+    ],
+  });
 
   it("serializes lowercase-named constant to lower_case readable JSON", () => {
-    // Arrange: parse a constant from its dense number.
-    const monday = weekdaySerializer.fromJson(1);
-    // Act: serialize to readable JSON.
-    const readable = weekdaySerializer.toJson(
-      monday as unknown as WeekdayEnum,
-      "readable",
-    );
-    // Assert: output is lower_case.
-    expect(readable).toBe("monday");
+    expect(weekday.transform(1, "readable")).toBe("monday");
   });
 
   it("parses UPPER_CASE constant name in readable JSON", () => {
-    // Arrange: readable JSON produced by old serializers uses UPPER_CASE.
-    const fromUpper = weekdaySerializer.fromJson("MONDAY");
-    const fromLower = weekdaySerializer.fromJson("monday");
-    // Act & Assert: both resolve to the same value.
-    expect(
-      weekdaySerializer.toJson(fromUpper as unknown as WeekdayEnum, "dense"),
-    ).toBe(
-      weekdaySerializer.toJson(fromLower as unknown as WeekdayEnum, "dense"),
-    );
-    // Both should not be the default (UNKNOWN).
-    const dense = weekdaySerializer.toJson(
-      fromUpper as unknown as WeekdayEnum,
-      "dense",
-    );
-    expect(dense).toBe(1);
+    expect(weekday.transform("MONDAY", "dense")).toBe(1);
+    expect(weekday.transform("monday", "dense")).toBe(1);
   });
 
   it("parses lower_case constant name in readable JSON", () => {
-    const result = weekdaySerializer.fromJson("tuesday");
-    expect(
-      weekdaySerializer.toJson(result as unknown as WeekdayEnum, "dense"),
-    ).toBe(2);
+    expect(weekday.transform("tuesday", "dense")).toBe(2);
   });
 });

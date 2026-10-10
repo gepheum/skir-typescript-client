@@ -3,27 +3,41 @@ import { describe, it } from "mocha";
 import { SerializerTester } from "./serializer_tester.js";
 import * as skir from "./skir-client.js";
 
+for (const primitive of [
+  "bool",
+  "int32",
+  "int64",
+  "hash64",
+  "float32",
+  "float64",
+  "timestamp",
+  "string",
+  "bytes",
+] as const) {
+  describe(`${primitive} type descriptor`, () => {
+    const serializer = skir.primitiveSerializer(primitive);
+
+    it("#typeDescriptor", () => {
+      expect(serializer.typeDescriptor).toMatch({
+        kind: "primitive",
+        primitive,
+      });
+    });
+
+    it("#asJson()", () => {
+      expect(serializer.typeDescriptor.asJson()).toMatch({
+        type: { kind: "primitive", value: primitive },
+        records: [],
+      });
+    });
+
+    new SerializerTester(serializer).reserializeTypeAdapterAndAssertNoLoss();
+  });
+}
+
 describe("bool serializer", () => {
   const serializer = skir.primitiveSerializer("bool");
   const tester = new SerializerTester(serializer);
-
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "bool",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "bool",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
 
   it("from number", () => {
     expect(serializer.fromJsonCode("888888")).toBe(true);
@@ -51,24 +65,6 @@ describe("bool serializer", () => {
 describe("int32 serializer", () => {
   const serializer = skir.primitiveSerializer("int32");
   const tester = new SerializerTester(serializer);
-
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "int32",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "int32",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
 
   tester.reserializeAndAssert(2, {
     denseJson: 2,
@@ -180,24 +176,6 @@ describe("int64 serializer", () => {
   const serializer = skir.primitiveSerializer("int64");
   const tester = new SerializerTester(serializer);
 
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "int64",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "int64",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
-
   it("can deserialize any number", () => {
     expect(serializer.fromJson(3.14)).toBe(BigInt(3));
   });
@@ -235,24 +213,6 @@ describe("int64 serializer", () => {
 describe("hash64 serializer", () => {
   const serializer = skir.primitiveSerializer("hash64");
   const tester = new SerializerTester(serializer);
-
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "hash64",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "hash64",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
 
   it("can deserialize any number", () => {
     expect(serializer.fromJson(3.14)).toBe(BigInt(3));
@@ -295,24 +255,6 @@ describe("hash64 serializer", () => {
 describe("float32 serializer", () => {
   const serializer = skir.primitiveSerializer("float32");
   const tester = new SerializerTester(serializer);
-
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "float32",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "float32",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
 
   it("can deserialize any number", () => {
     expect(serializer.fromJson("1111111111")).toMatch(1111111111);
@@ -371,24 +313,6 @@ describe("float64 serializer", () => {
   const serializer = skir.primitiveSerializer("float64");
   const tester = new SerializerTester(serializer);
 
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "float64",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "float64",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
-
   tester.reserializeAndAssert(2, {
     denseJson: 2,
     bytesAsBase16: "f10000000000000040",
@@ -430,24 +354,6 @@ describe("float64 serializer", () => {
 describe("string serializer", () => {
   const serializer = skir.primitiveSerializer("string");
   const tester = new SerializerTester(serializer);
-
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "string",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "string",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
 
   tester.reserializeAndAssert("", {
     denseJson: "",
@@ -494,24 +400,6 @@ describe("string serializer", () => {
 describe("bytes serializer", () => {
   const serializer = skir.primitiveSerializer("bytes");
   const tester = new SerializerTester(serializer);
-
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "bytes",
-    });
-  });
-
-  it("TypeDescript#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "bytes",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
 
   tester.reserializeAndAssert(skir.ByteString.fromBase64("abc123"), {
     denseJson: "abc12w==",

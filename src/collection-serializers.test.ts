@@ -19,7 +19,7 @@ describe("optional serializer", () => {
     });
   });
 
-  it("TypeDescript#asJson()", () => {
+  it("TypeDescriptor#asJson()", () => {
     expect(serializer.typeDescriptor.asJson()).toMatch({
       type: {
         kind: "optional",
@@ -30,8 +30,8 @@ describe("optional serializer", () => {
       },
       records: [],
     });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
   });
+  tester.reserializeTypeAdapterAndAssertNoLoss();
 
   tester.reserializeAndAssert(2, {
     denseJson: 2,
@@ -56,7 +56,7 @@ describe("array serializer", () => {
     });
   });
 
-  it("TypeDescript#asJson()", () => {
+  it("TypeDescriptor#asJson()", () => {
     expect(serializer.typeDescriptor.asJson()).toMatch({
       type: {
         kind: "array",
@@ -70,8 +70,8 @@ describe("array serializer", () => {
       },
       records: [],
     });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
   });
+  tester.reserializeTypeAdapterAndAssertNoLoss();
 
   tester.reserializeAndAssert([], {
     denseJson: [],
@@ -106,7 +106,7 @@ describe("string array serializer", () => {
   const serializer = skir.arraySerializer(itemSerializer);
   const tester = new SerializerTester(serializer);
 
-  it("TypeDescript#asJson()", () => {
+  it("TypeDescriptor#asJson()", () => {
     expect(serializer.typeDescriptor.asJson()).toMatch({
       type: {
         kind: "array",
@@ -120,8 +120,8 @@ describe("string array serializer", () => {
       },
       records: [],
     });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
   });
+  tester.reserializeTypeAdapterAndAssertNoLoss();
 
   tester.reserializeAndAssert([], {
     denseJson: [],

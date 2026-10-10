@@ -48,62 +48,36 @@ describe("Timestamp", () => {
     });
   });
 
-  describe("#toDate()", () => {
-    it("works", () => {
-      expect(
-        skir.Timestamp.fromUnixMillis(1694467279837).toDate().getTime(),
-      ).toBe(1694467279837);
-    });
+  it("#toDate()", () => {
+    expect(
+      skir.Timestamp.fromUnixMillis(1694467279837).toDate().getTime(),
+    ).toBe(1694467279837);
   });
 
-  describe("#now()", () => {
-    it("works", () => {
-      const now = skir.Timestamp.now();
-      expect(now.toDate().getFullYear()).toCompare(">=", 2023);
-      expect(now.toDate().getFullYear()).toCompare(
-        "<=",
-        new Date().getFullYear() + 1,
-      );
-    });
+  it("#now()", () => {
+    const now = skir.Timestamp.now();
+    expect(now.toDate().getFullYear()).toCompare(">=", 2023);
+    expect(now.toDate().getFullYear()).toCompare(
+      "<=",
+      new Date().getFullYear() + 1,
+    );
   });
 
-  describe("#toString()", () => {
-    it("works", () => {
-      const timestamp = skir.Timestamp.fromUnixMillis(1694467279837);
-      expect(timestamp.toString()).toBe("2023-09-11T21:21:19.837Z");
-    });
+  it("#toString()", () => {
+    const timestamp = skir.Timestamp.fromUnixMillis(1694467279837);
+    expect(timestamp.toString()).toBe("2023-09-11T21:21:19.837Z");
   });
 
-  describe("#parse()", () => {
-    it("works", () => {
-      const timestamp = skir.Timestamp.fromUnixMillis(1694467279837);
-      const parseResult = skir.Timestamp.parse(timestamp.toString());
-      expect(parseResult.unixMillis).toBe(timestamp.unixMillis);
-    });
+  it("#parse()", () => {
+    const timestamp = skir.Timestamp.fromUnixMillis(1694467279837);
+    const parseResult = skir.Timestamp.parse(timestamp.toString());
+    expect(parseResult.unixMillis).toBe(timestamp.unixMillis);
   });
 });
 
 describe("timestamp serializer", () => {
   const serializer = skir.primitiveSerializer("timestamp");
   const tester = new SerializerTester(serializer);
-
-  it("#typeDescriptor", () => {
-    expect(serializer.typeDescriptor).toMatch({
-      kind: "primitive",
-      primitive: "timestamp",
-    });
-  });
-
-  it("TypeDescriptor#asJson()", () => {
-    expect(serializer.typeDescriptor.asJson()).toMatch({
-      type: {
-        kind: "primitive",
-        value: "timestamp",
-      },
-      records: [],
-    });
-    tester.reserializeTypeAdapterAndAssertNoLoss();
-  });
 
   it("TypeDescriptor#asJsonCode()", () => {
     expect(serializer.typeDescriptor.asJsonCode()).toMatch(

@@ -4,11 +4,7 @@ import * as skir from "./skir-client.js";
 
 describe("ByteString", () => {
   const makeTestByteArray = (length = 4, start = 0): Uint8Array => {
-    const array: number[] = [];
-    for (let i = 0; i < length; ++i) {
-      array[i] = start + i;
-    }
-    return new Uint8Array(array);
+    return Uint8Array.from({ length }, (_, i) => start + i);
   };
 
   const makeTestByteString = (length = 4, start = 0): skir.ByteString => {
@@ -110,30 +106,25 @@ describe("ByteString", () => {
 
   for (const sliced of [false, true]) {
     const description = sliced ? "on sliced instance" : "on normal instance";
-    const byteString = //
-      sliced ? makeSlicedTestByteString(20) : makeTestByteString(20);
+    const byteString = sliced
+      ? makeSlicedTestByteString(20)
+      : makeTestByteString(20);
     describe(description, () => {
-      describe("#byteLength", () => {
-        it("works", () => {
-          expect(byteString.byteLength).toBe(20);
-        });
+      it("#byteLength", () => {
+        expect(byteString.byteLength).toBe(20);
       });
 
-      describe("#toBuffer", () => {
-        it("works", () => {
-          const buffer = byteString.toBuffer();
-          expect(buffer.byteLength).toBe(20);
-          expect(new Uint8Array(buffer)[2]).toBe(2);
-        });
+      it("#toBuffer", () => {
+        const buffer = byteString.toBuffer();
+        expect(buffer.byteLength).toBe(20);
+        expect(new Uint8Array(buffer)[2]).toBe(2);
       });
 
-      describe("#copyTo", () => {
-        it("works", () => {
-          const buffer = new ArrayBuffer(22);
-          byteString.copyTo(buffer, 1);
-          const array = new Uint8Array(buffer);
-          expect(array[5]).toBe(4);
-        });
+      it("#copyTo", () => {
+        const buffer = new ArrayBuffer(22);
+        byteString.copyTo(buffer, 1);
+        const array = new Uint8Array(buffer);
+        expect(array[5]).toBe(4);
       });
 
       describe("#at()", () => {
@@ -164,12 +155,12 @@ describe("ByteString", () => {
           expect(base16).toBe("000102030405060708090a0b0c0d0e0f10111213");
         });
         it("#fromBase16() works", () => {
-          const fromBase64 = skir.ByteString.fromBase16(base16);
-          expect(toArray(fromBase64)).toMatch(array);
+          const fromBase16 = skir.ByteString.fromBase16(base16);
+          expect(toArray(fromBase16)).toMatch(array);
         });
         it("#fromBase16() accepts uppercase", () => {
-          const fromBase64 = skir.ByteString.fromBase16(base16.toUpperCase());
-          expect(toArray(fromBase64)).toMatch(array);
+          const fromBase16 = skir.ByteString.fromBase16(base16.toUpperCase());
+          expect(toArray(fromBase16)).toMatch(array);
         });
       });
     });
