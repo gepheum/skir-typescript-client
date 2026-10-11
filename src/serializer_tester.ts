@@ -1,12 +1,12 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
 import {
+  ByteString,
   parseTypeDescriptorFromJson,
   type Json,
   type JsonFlavor,
   type MutableForm,
   type Serializer,
-  type TypeDescriptor,
 } from "./skir-client.js";
 
 export class SerializerTester<T> {
@@ -28,7 +28,6 @@ export class SerializerTester<T> {
     const { serializer } = this;
 
     describe(description ?? `reserialize ${input}`, () => {
-      // Test JSON serialization.
       const jsonFlavors: JsonFlavor[] = ["dense", "readable"];
       for (const flavor of jsonFlavors) {
         const expectedJson =
@@ -76,7 +75,6 @@ export class SerializerTester<T> {
         });
       }
 
-      // Test binary serialization.
       const actualBytes = serializer.toBytes(input).toBuffer();
       it("#toBytes()", () => {
         const actualBase16 = toBase16(actualBytes);
@@ -100,43 +98,33 @@ export class SerializerTester<T> {
         expect(actualDenseJson).toMatch(expectedDenseJson);
       });
 
-      // Test the #transform method of TypeDescriptor.
       if (!expected.lossy) {
         type Format = JsonFlavor | "bytes";
-        const transformAndAssert = (
-          reparse: boolean,
-          sourceFormat: Format,
-          targetFormat: Format,
-        ): void => {
-          let typeDescriptor: TypeDescriptor = serializer.typeDescriptor;
-          if (reparse) {
-            typeDescriptor = parseTypeDescriptorFromJson(
-              typeDescriptor.asJson(),
-            );
-          }
-          const serialize = (
-            format: JsonFlavor | "bytes",
-          ): Json | ArrayBuffer =>
-            format === "bytes"
-              ? serializer.toBytes(input).toBuffer()
-              : serializer.toJson(input, format);
-          const source = serialize(sourceFormat);
-          const target = serialize(targetFormat);
-          const transformed = typeDescriptor.transform(source, targetFormat);
-          const arrayBufferToBase16 = (a: Json | ArrayBuffer): Json =>
-            a instanceof ArrayBuffer ? toBase16(a) : a;
-          const parsedPrefix = reparse ? "parseTypeDescriptor then " : "";
-          it(`${parsedPrefix}transform ${sourceFormat} -> ${targetFormat}`, () => {
-            expect(arrayBufferToBase16(transformed)).toMatch(
-              arrayBufferToBase16(target),
-            );
-          });
+        const serialized: Record<Format, Json | ArrayBuffer> = {
+          dense: serializer.toJson(input, "dense"),
+          readable: serializer.toJson(input, "readable"),
+          bytes: actualBytes,
         };
+        const normalize = (value: Json | ArrayBuffer): Json =>
+          value instanceof ArrayBuffer ? toBase16(value) : value;
         const formats: Format[] = ["dense", "readable", "bytes"];
         for (const reparse of [false, true]) {
+          // Reparsing primitives returns the same serializer instance.
+          if (reparse && serializer.typeDescriptor.kind === "primitive")
+            continue;
+          const prefix = reparse ? "parseTypeDescriptor then " : "";
           for (const source of formats) {
             for (const target of formats) {
-              transformAndAssert(reparse, source, target);
+              it(`${prefix}transform ${source} -> ${target}`, () => {
+                const descriptor = reparse
+                  ? parseTypeDescriptorFromJson(
+                      serializer.typeDescriptor.asJson(),
+                    )
+                  : serializer.typeDescriptor;
+                expect(
+                  normalize(descriptor.transform(serialized[source], target)),
+                ).toMatch(normalize(serialized[target]));
+              });
             }
           }
         }
@@ -178,8 +166,5 @@ export class SerializerTester<T> {
 export function toBase16(buffer: ArrayBuffer): string {
   const prefix = new TextDecoder().decode(new Uint8Array(buffer).slice(0, 4));
   expect(prefix).toBe("skir");
-  return [...new Uint8Array(buffer)]
-    .slice(4)
-    .map((x) => x.toString(16).padStart(2, "0"))
-    .join("");
+  return ByteString.sliceOf(buffer, 4).toBase16();
 }
