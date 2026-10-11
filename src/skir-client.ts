@@ -911,6 +911,14 @@ function decodeNumber(stream: InputStream): number | bigint {
   return wire < 232 ? wire : DECODE_NUMBER_FNS[wire - 232]!(stream);
 }
 
+function decodeUint32(stream: InputStream): number {
+  const wire = stream.dataView.getUint8(stream.offset);
+  if (wire > 233) {
+    throw new Error(`Invalid unsigned length or variant tag: ${wire}`);
+  }
+  return decodeNumber(stream) as number;
+}
+
 function decodeBigInt(stream: InputStream): bigint {
   const number = decodeNumber(stream);
   return typeof number === "bigint" ? number : BigInt(Math.round(number));
@@ -1590,19 +1598,23 @@ class TimestampSerializer extends AbstractPrimitiveSerializer<"timestamp"> {
   }
 }
 
+function hasLoneSurrogate(input: string): boolean {
+  // Unicode mode treats valid surrogate pairs as a single code point.
+  return /[\uD800-\uDFFF]/u.test(input);
+}
+
 class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
   readonly primitive = "string";
   readonly defaultValue = "";
 
   toJson(input: string): string {
-    if (typeof input === "string") {
-      return input;
-    }
-    throw this.newTypeError(input);
+    this.validateString(input);
+    return input;
   }
 
   fromJson(json: Json): string {
     if (typeof json === "string") {
+      this.validateString(json);
       return json;
     }
     if (json === 0) {
@@ -1612,6 +1624,7 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
   }
 
   encode(input: string, stream: OutputStream): void {
+    this.validateString(input);
     if (!input) {
       stream.writeUint8(242);
       return;
@@ -1650,14 +1663,28 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
     if (wire === 0 || wire === 242) {
       return "";
     }
-    const encodedLength = decodeNumber(stream) as number;
+    if (wire !== 243) {
+      throw new Error(`Invalid string wire tag: ${wire}`);
+    }
+    const encodedLength = decodeUint32(stream);
+    const start = stream.offset;
+    stream.offset += encodedLength;
     return textDecoder.decode(
-      new Uint8Array(
-        stream.buffer,
-        (stream.offset += encodedLength) - encodedLength,
-        encodedLength,
-      ),
+      new Uint8Array(stream.buffer, start, encodedLength),
     );
+  }
+
+  override isDefault(input: string): boolean {
+    return input === "";
+  }
+
+  private validateString(input: unknown): void {
+    if (typeof input !== "string") {
+      throw this.newTypeError(input);
+    }
+    if (hasLoneSurrogate(input)) {
+      throw new Error("Unpaired Unicode surrogate");
+    }
   }
 
   private newTypeError(actual: unknown): TypeError {
@@ -1743,7 +1770,7 @@ type EnumVariantImpl<Enum = unknown> =
   | EnumWrapperVariantImpl<Enum, unknown>;
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+const textDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 class ArraySerializerImpl<Item>
   extends AbstractSerializer<readonly Item[]>
@@ -1925,7 +1952,14 @@ function decodeUnused(stream: InputStream): void {
     case 3: // uint8 - 256
       ++stream.offset;
       break;
-    case 11: // string
+    case 11: {
+      // string
+      const length = decodeUint32(stream);
+      const start = stream.offset;
+      stream.offset += length;
+      textDecoder.decode(new Uint8Array(stream.buffer, start, length));
+      break;
+    }
     case 13: {
       // bytes
       const length = decodeNumber(stream) as number;
