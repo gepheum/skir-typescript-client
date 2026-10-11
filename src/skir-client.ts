@@ -1962,7 +1962,7 @@ function decodeUnused(stream: InputStream): void {
     }
     case 13: {
       // bytes
-      const length = decodeNumber(stream) as number;
+      const length = decodeUint32(stream);
       stream.offset += length;
       break;
     }

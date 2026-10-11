@@ -517,6 +517,17 @@ describe("bytes serializer", () => {
   const serializer = skir.primitiveSerializer("bytes");
   const tester = new SerializerTester(serializer);
 
+  it("rejects invalid lengths in skipped byte fields", () => {
+    const empty = structSerializer([]);
+    for (const keep of [undefined, "keep-unrecognized-values"] as const) {
+      assert.doesNotThrow(() => empty.fromBytes(binary(247, 245, 1, 65), keep));
+      assert.throws(
+        () => empty.fromBytes(binary(247, 245, 235, 255), keep),
+        /unsigned length/i,
+      );
+    }
+  });
+
   tester.reserializeAndAssert(skir.ByteString.fromBase64("abc123"), {
     denseJson: "abc12w==",
     readableJson: "hex:69b735db",
