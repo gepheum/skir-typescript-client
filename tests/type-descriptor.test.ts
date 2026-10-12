@@ -1,7 +1,7 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
 import assert from "node:assert/strict";
-import * as skir from "./skir-client.js";
+import * as skir from "../src/skir-client.js";
 import {
   binary,
   structSerializer,
