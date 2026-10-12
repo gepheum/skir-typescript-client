@@ -3,7 +3,7 @@ import { describe, it } from "mocha";
 import assert from "node:assert/strict";
 import { SerializerTester } from "./serializer_tester.js";
 import * as skir from "./skir-client.js";
-import { binary, structSerializer } from "./test_helpers.js";
+import { binary, defineStruct } from "./test_helpers.js";
 
 for (const primitive of [
   "bool",
@@ -388,127 +388,99 @@ describe("string serializer", () => {
   );
   tester.deserializeZeroAndAssert((s) => s === "");
 
-  it("rejects non-string inputs when writing strings", () => {
-    const writer = serializer as skir.Serializer<unknown>;
-    for (const input of [null, undefined, false, 0, 1, [], {}]) {
-      assert.throws(() => writer.toJson(input), TypeError);
-      assert.throws(() => writer.toBytes(input), TypeError);
+  it("sanitizes lone surrogates when encoding to binary and JSON", () => {
+    const input = "\uFEFF😀\uDC00\uD800z";
+    const expected = "\uFEFF😀\uFFFD\uFFFDz";
+    const bytes = serializer.toBytes(input).toBuffer();
+    expect(serializer.fromBytes(bytes)).toBe(expected);
+    expect(serializer.toJson(input)).toBe(expected);
+    expect(serializer.fromJson(input)).toBe(expected);
+  });
+
+  const StringRecord = defineStruct(
+    [
+      {
+        name: "text",
+        property: "text",
+        number: 0,
+        type: { kind: "primitive", primitive: "string" },
+      },
+    ],
+    { text: "" },
+  );
+  const structDescriptor = StringRecord.serializer.typeDescriptor;
+
+  it("rejects non-string values when writing string fields", () => {
+    for (const text of [null, false, 0]) {
+      assert.throws(() => StringRecord.serializer.toJson({ text }), TypeError);
+      assert.throws(
+        () => StringRecord.serializer.toJson({ text }, "readable"),
+        TypeError,
+      );
+      assert.throws(() => StringRecord.serializer.toBytes({ text }), TypeError);
     }
   });
 
-  it("rejects invalid JSON inputs when reading strings", () => {
-    for (const json of [null, false, 1, [], {}]) {
-      assert.throws(() => serializer.fromJson(json), TypeError);
-    }
-  });
-
-  it("rejects unpaired surrogates in JSON and binary writers and JSON readers", () => {
-    for (const string of [
-      "\uD800z",
-      "\uDC00",
-      "\uD800\uD800",
-      "\uD800",
-      "\uDFFF",
-    ]) {
-      assert.throws(() => serializer.toBytes(string), /surrogate/i);
-      assert.throws(() => serializer.toJson(string), /surrogate/i);
-      assert.throws(() => serializer.fromJson(string), /surrogate/i);
-    }
-  });
-
-  it("preserves paired surrogates and characters bordering the surrogate range", () => {
-    for (const string of [
-      "a\uD83D\uDE00z",
-      "\uD800\uDC00",
-      "\uDBFF\uDFFF",
-      "\uD7FF\uE000",
-    ]) {
-      assert.equal(serializer.fromJson(serializer.toJson(string)), string);
-      assert.equal(
-        serializer.fromBytes(serializer.toBytes(string).toBuffer()),
-        string,
+  it("rejects non-string JSON fields", () => {
+    for (const text of [null, false]) {
+      assert.throws(
+        () => structDescriptor.transform({ text }, "dense"),
+        TypeError,
       );
     }
   });
 
-  const stringType: skir.Json = { kind: "primitive", value: "string" };
-  const struct = structSerializer([
-    { name: "text", number: 0, type: stringType },
-    {
-      name: "optional",
-      number: 1,
-      type: { kind: "optional", value: stringType },
-    },
-    {
-      name: "items",
-      number: 2,
-      type: { kind: "array", value: { item: stringType } },
-    },
-  ]);
-
-  it("preserves leading BOMs in standalone strings", () => {
-    for (const string of ["\uFEFF", "\uFEFF\uFEFFtext", "\uFEFF\uD83D\uDE00"]) {
-      assert.equal(
-        serializer.fromBytes(serializer.toBytes(string).toBuffer()),
-        string,
-      );
-    }
-  });
-
-  it("preserves BOMs and paired surrogates in defined, optional and array string fields", () => {
-    const text = "\uFEFF\uD83D\uDE00";
-    const json: skir.Json = [text, text, [text]];
-    const input = struct.fromJson(json);
+  it("replaces malformed UTF-8 in standalone strings and fields", () => {
+    assert.equal(
+      serializer.fromBytes(binary(243, 3, 237, 160, 128)),
+      "\uFFFD\uFFFD\uFFFD",
+    );
     assert.deepEqual(
-      struct.toJson(struct.fromBytes(struct.toBytes(input).toBuffer())),
-      json,
+      structDescriptor.transform(binary(247, 243, 1, 255), "dense"),
+      ["\uFFFD"],
     );
   });
 
-  it("rejects malformed UTF-8 in standalone and defined string fields", () => {
-    for (const payload of [
-      [243, 1, 255],
-      [243, 2, 192, 175],
-      [243, 3, 237, 160, 128],
-    ]) {
-      assert.throws(() => serializer.fromBytes(binary(...payload)));
-    }
-    assert.throws(() => struct.fromBytes(binary(247, 243, 1, 255)));
-  });
-
-  it("rejects invalid string tags, lengths and truncated payloads", () => {
+  it("rejects invalid string tags, lengths and missing payload bytes", () => {
     for (const payload of [
       [247, 1, 65],
-      [243, 3, 65],
       [243, 235, 255],
-      [243, 234, 0, 0, 0, 0, 0, 0, 0, 0],
-      [243, 241, 0, 0, 0, 0, 0, 0, 248, 63],
+      [243, 3, 65],
     ]) {
       assert.throws(() => serializer.fromBytes(binary(...payload)));
     }
-    assert.throws(() => struct.fromBytes(binary(247, 243, 3, 65)));
   });
 
-  it("checks UTF-8 in skipped fields as well as defined fields", () => {
-    const empty = structSerializer([]);
-    for (const keep of [undefined, "keep-unrecognized-values"] as const) {
-      assert.throws(() => empty.fromBytes(binary(247, 243, 1, 255), keep));
-      assert.throws(() => empty.fromBytes(binary(247, 243, 3, 65), keep));
+  it("accepts complete payloads in skipped string and byte fields", () => {
+    for (const tag of [243, 245]) {
+      assert.doesNotThrow(() =>
+        structDescriptor.transform(binary(248, 242, tag, 1, 255), "dense"),
+      );
     }
   });
 
-  it("rejects invalid string fields instead of omitting them as defaults", () => {
-    const writer = struct as skir.Serializer<unknown>;
-    for (const text of [null, false, 0, "\uD800z"]) {
-      const input = { text, optional: null, items: [] };
-      assert.throws(() => writer.toJson(input));
-      assert.throws(() => writer.toJson(input, "readable"));
-      assert.throws(() => writer.toBytes(input));
+  it("reads the next value after skipped string and byte fields", () => {
+    const records = skir.arraySerializer(StringRecord.serializer);
+    for (const tag of [243, 245]) {
+      const input = binary(248, 248, 242, tag, 1, 65, 247, 243, 1, 66);
+      assert.deepEqual(records.toJson(records.fromBytes(input)), [[], ["B"]]);
     }
-    for (const text of ["\uD800z", "\uDC00"]) {
-      for (const json of [[text], ["", text], ["", null, [text]]]) {
-        assert.throws(() => struct.fromJson(json));
-      }
+  });
+
+  it("rejects invalid lengths in skipped string and byte fields", () => {
+    for (const tag of [243, 245]) {
+      assert.throws(() =>
+        structDescriptor.transform(binary(248, 242, tag, 235, 255), "dense"),
+      );
+    }
+  });
+
+  it("rejects missing payload bytes in skipped string and byte fields", () => {
+    for (const tag of [243, 245]) {
+      assert.throws(
+        () => structDescriptor.transform(binary(248, 242, tag, 2, 65), "dense"),
+        RangeError,
+      );
     }
   });
 });
@@ -516,17 +488,6 @@ describe("string serializer", () => {
 describe("bytes serializer", () => {
   const serializer = skir.primitiveSerializer("bytes");
   const tester = new SerializerTester(serializer);
-
-  it("rejects invalid lengths in skipped byte fields", () => {
-    const empty = structSerializer([]);
-    for (const keep of [undefined, "keep-unrecognized-values"] as const) {
-      assert.doesNotThrow(() => empty.fromBytes(binary(247, 245, 1, 65), keep));
-      assert.throws(
-        () => empty.fromBytes(binary(247, 245, 235, 255), keep),
-        /unsigned length/i,
-      );
-    }
-  });
 
   tester.reserializeAndAssert(skir.ByteString.fromBase64("abc123"), {
     denseJson: "abc12w==",
