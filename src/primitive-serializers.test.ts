@@ -397,20 +397,30 @@ describe("string serializer", () => {
     expect(serializer.fromJson(input)).toBe(expected);
   });
 
-  const StringRecord = defineStruct(
-    [
-      {
-        name: "text",
-        property: "text",
-        number: 0,
-        type: { kind: "primitive", primitive: "string" },
-      },
-    ],
-    { text: "" },
-  );
-  const structDescriptor = StringRecord.serializer.typeDescriptor;
+  const StringRecord = defineStruct({ text: "string" });
 
-  it("rejects non-string values when writing string fields", () => {
+  it("round-trips strings in optional, array, and nested fields", () => {
+    const stringType = { kind: "primitive", primitive: "string" } as const;
+    const Record = defineStruct({
+      optional: { kind: "optional", other: stringType },
+      items: { kind: "array", item: stringType },
+      nested: { kind: "record", ctor: StringRecord },
+    });
+    const text = "\uFEFF😀";
+    const json = [text, [text], [text]];
+    const serializer = Record.serializer;
+    const input = serializer.fromJson(json);
+    assert.deepEqual(serializer.toJson(input), json);
+    assert.deepEqual(
+      serializer.toJson(
+        serializer.fromBytes(serializer.toBytes(input).toBuffer()),
+      ),
+      json,
+    );
+    assert.deepEqual(serializer.toJson(serializer.fromJson(0)), []);
+  });
+
+  it("record serialization rejects non-string values in string fields", () => {
     for (const text of [null, false, 0]) {
       assert.throws(() => StringRecord.serializer.toJson({ text }), TypeError);
       assert.throws(
@@ -421,10 +431,10 @@ describe("string serializer", () => {
     }
   });
 
-  it("rejects non-string JSON fields", () => {
+  it("record deserialization rejects non-string JSON values in string fields", () => {
     for (const text of [null, false]) {
       assert.throws(
-        () => structDescriptor.transform({ text }, "dense"),
+        () => StringRecord.serializer.fromJson({ text }),
         TypeError,
       );
     }
@@ -435,9 +445,9 @@ describe("string serializer", () => {
       serializer.fromBytes(binary(243, 3, 237, 160, 128)),
       "\uFFFD\uFFFD\uFFFD",
     );
-    assert.deepEqual(
-      structDescriptor.transform(binary(247, 243, 1, 255), "dense"),
-      ["\uFFFD"],
+    assert.equal(
+      StringRecord.serializer.fromBytes(binary(247, 243, 1, 255)).text,
+      "\uFFFD",
     );
   });
 
@@ -453,8 +463,9 @@ describe("string serializer", () => {
 
   it("accepts complete payloads in skipped string and byte fields", () => {
     for (const tag of [243, 245]) {
-      assert.doesNotThrow(() =>
-        structDescriptor.transform(binary(248, 242, tag, 1, 255), "dense"),
+      assert.equal(
+        StringRecord.serializer.fromBytes(binary(248, 242, tag, 1, 255)).text,
+        "",
       );
     }
   });
@@ -470,7 +481,7 @@ describe("string serializer", () => {
   it("rejects invalid lengths in skipped string and byte fields", () => {
     for (const tag of [243, 245]) {
       assert.throws(() =>
-        structDescriptor.transform(binary(248, 242, tag, 235, 255), "dense"),
+        StringRecord.serializer.fromBytes(binary(248, 242, tag, 235, 255)),
       );
     }
   });
@@ -478,7 +489,7 @@ describe("string serializer", () => {
   it("rejects missing payload bytes in skipped string and byte fields", () => {
     for (const tag of [243, 245]) {
       assert.throws(
-        () => structDescriptor.transform(binary(248, 242, tag, 2, 65), "dense"),
+        () => StringRecord.serializer.fromBytes(binary(248, 242, tag, 2, 65)),
         RangeError,
       );
     }
