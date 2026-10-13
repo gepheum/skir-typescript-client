@@ -911,6 +911,14 @@ function decodeNumber(stream: InputStream): number | bigint {
   return wire < 232 ? wire : DECODE_NUMBER_FNS[wire - 232]!(stream);
 }
 
+function decodeUint32(stream: InputStream): number {
+  const wire = stream.dataView.getUint8(stream.offset);
+  if (wire > 233) {
+    throw new Error(`Invalid unsigned length or variant tag: ${wire}`);
+  }
+  return decodeNumber(stream) as number;
+}
+
 function decodeBigInt(stream: InputStream): bigint {
   const number = decodeNumber(stream);
   return typeof number === "bigint" ? number : BigInt(Math.round(number));
@@ -1595,15 +1603,14 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
   readonly defaultValue = "";
 
   toJson(input: string): string {
-    if (typeof input === "string") {
-      return input;
-    }
-    throw this.newTypeError(input);
+    // Unicode mode leaves valid surrogate pairs intact.
+    return input.replace(/[\uD800-\uDFFF]/gu, "\uFFFD");
   }
 
   fromJson(json: Json): string {
     if (typeof json === "string") {
-      return json;
+      // Reuse toJson's lone-surrogate sanitization when reading JSON.
+      return this.toJson(json);
     }
     if (json === 0) {
       return "";
@@ -1612,6 +1619,9 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
   }
 
   encode(input: string, stream: OutputStream): void {
+    if (typeof input !== "string") {
+      throw this.newTypeError(input);
+    }
     if (!input) {
       stream.writeUint8(242);
       return;
@@ -1650,7 +1660,10 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
     if (wire === 0 || wire === 242) {
       return "";
     }
-    const encodedLength = decodeNumber(stream) as number;
+    if (wire !== 243) {
+      throw new Error(`Invalid string wire tag: ${wire}`);
+    }
+    const encodedLength = decodeUint32(stream);
     return textDecoder.decode(
       new Uint8Array(
         stream.buffer,
@@ -1658,6 +1671,10 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
         encodedLength,
       ),
     );
+  }
+
+  override isDefault(input: string): boolean {
+    return input === "";
   }
 
   private newTypeError(actual: unknown): TypeError {
@@ -1743,7 +1760,7 @@ type EnumVariantImpl<Enum = unknown> =
   | EnumWrapperVariantImpl<Enum, unknown>;
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+const textDecoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 class ArraySerializerImpl<Item>
   extends AbstractSerializer<readonly Item[]>
@@ -1928,8 +1945,11 @@ function decodeUnused(stream: InputStream): void {
     case 11: // string
     case 13: {
       // bytes
-      const length = decodeNumber(stream) as number;
+      const length = decodeUint32(stream);
       stream.offset += length;
+      if (stream.offset > stream.buffer.byteLength) {
+        throw new RangeError("Payload exceeds input buffer");
+      }
       break;
     }
     case 15: // array length==1

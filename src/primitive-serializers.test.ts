@@ -1,7 +1,9 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
+import assert from "node:assert/strict";
 import { SerializerTester } from "./serializer_tester.js";
 import * as skir from "./skir-client.js";
+import { binary, defineStruct } from "./test_helpers.js";
 
 for (const primitive of [
   "bool",
@@ -386,14 +388,111 @@ describe("string serializer", () => {
   );
   tester.deserializeZeroAndAssert((s) => s === "");
 
-  it("sanitizes lone surrogates when encoding to binary", () => {
-    // U+D800 is an unpaired surrogate. It is not a valid Unicode scalar value.
-    const bytes = serializer.toBytes("\uD800z").toBuffer();
-    expect(serializer.fromBytes(bytes)).toBe("\uFFFDz");
+  it("sanitizes lone surrogates when encoding to binary and JSON", () => {
+    const input = "\uFEFF😀\uDC00\uD800z";
+    const expected = "\uFEFF😀\uFFFD\uFFFDz";
+    const bytes = serializer.toBytes(input).toBuffer();
+    expect(serializer.fromBytes(bytes)).toBe(expected);
+    expect(serializer.toJson(input)).toBe(expected);
+    expect(serializer.fromJson(input)).toBe(expected);
   });
 
-  it("escapes lone surrogates in JSON serialization", () => {
-    expect(serializer.toJsonCode("\uD800z")).toBe('"\\ud800z"');
+  const StringRecord = defineStruct({ text: "string" });
+
+  it("round-trips strings in optional, array, and nested fields", () => {
+    const stringType = { kind: "primitive", primitive: "string" } as const;
+    const Record = defineStruct({
+      optional: { kind: "optional", other: stringType },
+      items: { kind: "array", item: stringType },
+      nested: { kind: "record", ctor: StringRecord },
+    });
+    const text = "\uFEFF😀";
+    const json = [text, [text], [text]];
+    const serializer = Record.serializer;
+    const input = serializer.fromJson(json);
+    assert.deepEqual(serializer.toJson(input), json);
+    assert.deepEqual(
+      serializer.toJson(
+        serializer.fromBytes(serializer.toBytes(input).toBuffer()),
+      ),
+      json,
+    );
+    assert.deepEqual(serializer.toJson(serializer.fromJson(0)), []);
+  });
+
+  it("record serialization rejects non-string values in string fields", () => {
+    for (const text of [null, false, 0]) {
+      assert.throws(() => StringRecord.serializer.toJson({ text }), TypeError);
+      assert.throws(
+        () => StringRecord.serializer.toJson({ text }, "readable"),
+        TypeError,
+      );
+      assert.throws(() => StringRecord.serializer.toBytes({ text }), TypeError);
+    }
+  });
+
+  it("record deserialization rejects non-string JSON values in string fields", () => {
+    for (const text of [null, false]) {
+      assert.throws(
+        () => StringRecord.serializer.fromJson({ text }),
+        TypeError,
+      );
+    }
+  });
+
+  it("replaces malformed UTF-8 in standalone strings and fields", () => {
+    assert.equal(
+      serializer.fromBytes(binary(243, 3, 237, 160, 128)),
+      "\uFFFD\uFFFD\uFFFD",
+    );
+    assert.equal(
+      StringRecord.serializer.fromBytes(binary(247, 243, 1, 255)).text,
+      "\uFFFD",
+    );
+  });
+
+  it("rejects invalid string tags, lengths and missing payload bytes", () => {
+    for (const payload of [
+      [247, 1, 65],
+      [243, 235, 255],
+      [243, 3, 65],
+    ]) {
+      assert.throws(() => serializer.fromBytes(binary(...payload)));
+    }
+  });
+
+  it("accepts complete payloads in skipped string and byte fields", () => {
+    for (const tag of [243, 245]) {
+      assert.equal(
+        StringRecord.serializer.fromBytes(binary(248, 242, tag, 1, 255)).text,
+        "",
+      );
+    }
+  });
+
+  it("reads the next value after skipped string and byte fields", () => {
+    const records = skir.arraySerializer(StringRecord.serializer);
+    for (const tag of [243, 245]) {
+      const input = binary(248, 248, 242, tag, 1, 65, 247, 243, 1, 66);
+      assert.deepEqual(records.toJson(records.fromBytes(input)), [[], ["B"]]);
+    }
+  });
+
+  it("rejects invalid lengths in skipped string and byte fields", () => {
+    for (const tag of [243, 245]) {
+      assert.throws(() =>
+        StringRecord.serializer.fromBytes(binary(248, 242, tag, 235, 255)),
+      );
+    }
+  });
+
+  it("rejects missing payload bytes in skipped string and byte fields", () => {
+    for (const tag of [243, 245]) {
+      assert.throws(
+        () => StringRecord.serializer.fromBytes(binary(248, 242, tag, 2, 65)),
+        RangeError,
+      );
+    }
   });
 });
 
