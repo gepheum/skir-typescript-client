@@ -1,7 +1,9 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
+import assert from "node:assert/strict";
 import { SerializerTester } from "./serializer_tester.js";
 import * as skir from "./skir-client.js";
+import { binary } from "./test_helpers.js";
 
 describe("optional serializer", () => {
   const otherSerializer = skir.primitiveSerializer("int32");
@@ -48,6 +50,10 @@ describe("array serializer", () => {
   const itemSerializer = skir.primitiveSerializer("int32");
   const serializer = skir.arraySerializer(itemSerializer, "foo.bar");
   const tester = new SerializerTester(serializer);
+
+  it("rejects invalid array tags", () => {
+    assert.throws(() => serializer.fromBytes(binary(244, 0)));
+  });
 
   it("#typeDescriptor", () => {
     expect(serializer.typeDescriptor).toMatch({

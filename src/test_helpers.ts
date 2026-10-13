@@ -11,13 +11,15 @@ type TypeSpec = Extract<
   { kind: "struct" }
 >["fields"][number]["type"];
 
+type StructSchema = Record<string, keyof PrimitiveTypes | TypeSpec>;
+
+export type StructInstance = Record<string, unknown>;
+
 let structNumber = 0;
 
-export function defineStruct(
-  schema: Record<string, keyof PrimitiveTypes | TypeSpec>,
-): {
-  new (): Record<string, unknown>;
-  serializer: Serializer<Record<string, unknown>>;
+export function defineStruct(schema: StructSchema): {
+  new (): StructInstance;
+  serializer: Serializer<StructInstance>;
 } {
   const fields = Object.entries(schema).map(([name, type], number) => ({
     name,
@@ -64,6 +66,12 @@ export function defineStruct(
     },
   ]);
   return Struct;
+}
+
+export function structSerializer(
+  schema: StructSchema,
+): Serializer<StructInstance> {
+  return defineStruct(schema).serializer;
 }
 
 export function binary(...payload: number[]): ArrayBuffer {

@@ -886,6 +886,13 @@ class InputStream {
   readUint8(): number {
     return this.dataView.getUint8(this.offset++);
   }
+
+  skip(length: number): void {
+    if (length > this.buffer.byteLength - this.offset) {
+      throw new RangeError("Truncated binary payload");
+    }
+    this.offset += length;
+  }
 }
 
 type DecodeNumberFn = (stream: InputStream) => number | bigint;
@@ -908,6 +915,9 @@ const DECODE_NUMBER_FNS: readonly DecodeNumberFn[] = [
 
 function decodeNumber(stream: InputStream): number | bigint {
   const wire = stream.readUint8();
+  if (wire > 241) {
+    throw new Error(`Invalid numeric wire tag: ${wire}`);
+  }
   return wire < 232 ? wire : DECODE_NUMBER_FNS[wire - 232]!(stream);
 }
 
@@ -917,6 +927,17 @@ function decodeUint32(stream: InputStream): number {
     throw new Error(`Invalid unsigned length or variant tag: ${wire}`);
   }
   return decodeNumber(stream) as number;
+}
+
+function decodeArrayLength(wire: number, stream: InputStream): number {
+  if (wire < 246 || wire > 250) {
+    throw new Error(`Invalid array wire tag: ${wire}`);
+  }
+  const length = wire === 250 ? decodeUint32(stream) : wire - 246;
+  if (length > stream.buffer.byteLength - stream.offset) {
+    throw new Error("Truncated binary array");
+  }
+  return length;
 }
 
 function decodeBigInt(stream: InputStream): bigint {
@@ -998,24 +1019,9 @@ class OutputStream implements BinaryForm {
   }
 
   putBytes(bytes: ByteString): void {
-    // We do at most 2 writes:
-    //   - First, fill the current buffer as much as possible
-    //   - If there is not enough room, allocate a new buffer of N bytes, where
-    //       N is at least the number of bytes left in the byte string.
-    const { buffer } = this;
-    const bytesLeftInCurrentBuffer = buffer.byteLength - this.offset;
-    const head = ByteString.sliceOf(bytes, 0, bytesLeftInCurrentBuffer);
-    head.copyTo(buffer, this.offset);
-    this.offset += head.byteLength;
-    const remainingBytes = bytes.byteLength - head.byteLength;
-    if (remainingBytes <= 0) {
-      // Everything was written.
-      return;
-    }
-    const tail = ByteString.sliceOf(bytes, remainingBytes);
-    this.reserve(remainingBytes);
-    tail.copyTo(buffer, this.offset);
-    this.offset += remainingBytes;
+    this.reserve(bytes.byteLength);
+    bytes.copyTo(this.buffer, this.offset);
+    this.offset += bytes.byteLength;
   }
 
   finalize(): BinaryForm {
@@ -1041,7 +1047,7 @@ class OutputStream implements BinaryForm {
 
   /** Returns a data view with enough capacity for `bytes` more bytes. */
   private reserve(bytes: number): DataView {
-    if (this.offset < this.buffer.byteLength - bytes) {
+    if (this.offset <= this.buffer.byteLength - bytes) {
       // Enough room in the current data view.
       return this.dataView;
     }
@@ -1091,8 +1097,18 @@ abstract class AbstractSerializer<T> implements InternalSerializer<T> {
 
   fromBytes(bytes: ArrayBuffer, keep?: "keep-unrecognized-values"): T {
     const inputStream = new InputStream(bytes, keep);
+    if (
+      bytes.byteLength < 4 ||
+      inputStream.dataView.getUint32(0) !== 0x736b6972
+    ) {
+      throw new Error("Invalid skir binary header");
+    }
     inputStream.offset = 4; // Skip the "skir" header.
-    return this.decode(inputStream);
+    const value = this.decode(inputStream);
+    if (inputStream.offset !== bytes.byteLength) {
+      throw new Error("Trailing or truncated binary data");
+    }
+    return value;
   }
 
   toJsonCode(input: T, flavor?: JsonFlavor): string {
@@ -1147,8 +1163,8 @@ abstract class AbstractSerializer<T> implements InternalSerializer<T> {
   ): Json | ArrayBuffer {
     const decoded: T =
       json_or_bytes instanceof ArrayBuffer
-        ? this.fromBytes(json_or_bytes)
-        : this.fromJson(json_or_bytes);
+        ? this.fromBytes(json_or_bytes, "keep-unrecognized-values")
+        : this.fromJson(json_or_bytes, "keep-unrecognized-values");
     return out === "bytes"
       ? this.toBytes(decoded).toBuffer()
       : this.toJson(decoded, out);
@@ -1189,7 +1205,10 @@ export function parseTypeDescriptorFromJson(json: Json): TypeDescriptor {
       case "enum":
         serializer = new EnumSerializerImpl<Json>((o: unknown) => {
           if (o instanceof UnrecognizedEnum) {
-            return Object.freeze({ kind: "UNKNOWN" });
+            return Object.freeze({
+              kind: "UNKNOWN",
+              "^": o,
+            }) as unknown as Json;
           }
           if (typeof o === "string") {
             return Object.freeze({ kind: o }) as Json;
@@ -1716,12 +1735,13 @@ class ByteStringSerializer extends AbstractPrimitiveSerializer<"bytes"> {
     if (wire === 0 || wire === 244) {
       return ByteString.EMPTY;
     }
-    const lengthInBytes = decodeNumber(stream) as number;
-    return ByteString.sliceOf(
-      stream.buffer,
-      stream.offset,
-      (stream.offset += lengthInBytes),
-    );
+    if (wire !== 245) {
+      throw new Error(`Invalid bytes wire tag: ${wire}`);
+    }
+    const lengthInBytes = decodeUint32(stream);
+    const start = stream.offset;
+    stream.skip(lengthInBytes);
+    return ByteString.sliceOf(stream.buffer, start, stream.offset);
   }
 
   override isDefault(input: ByteString): boolean {
@@ -1810,7 +1830,7 @@ class ArraySerializerImpl<Item>
     if (wire === 0 || wire === 246) {
       return _EMPTY_ARRAY;
     }
-    const length = wire === 250 ? (decodeNumber(stream) as number) : wire - 246;
+    const length = decodeArrayLength(wire, stream);
     const { itemSerializer } = this;
     const result = new Array<Item>(length);
     for (let i = 0; i < length; ++i) {
@@ -1926,30 +1946,26 @@ function decodeUnused(stream: InputStream): void {
   switch (wire - 232) {
     case 0: // uint16
     case 4: // uint16 - 65536
-      stream.offset += 2;
+      stream.skip(2);
       break;
     case 1: // uint32
     case 5: // int32
     case 8: // float32
-      stream.offset += 4;
+      stream.skip(4);
       break;
     case 2: // hash64
     case 6: // int64
     case 7: // hash64 timestamp
     case 9: // float64
-      stream.offset += 8;
+      stream.skip(8);
       break;
     case 3: // uint8 - 256
-      ++stream.offset;
+      stream.skip(1);
       break;
     case 11: // string
     case 13: {
       // bytes
-      const length = decodeUint32(stream);
-      stream.offset += length;
-      if (stream.offset > stream.buffer.byteLength) {
-        throw new RangeError("Payload exceeds input buffer");
-      }
+      stream.skip(decodeUint32(stream));
       break;
     }
     case 15: // array length==1
@@ -1970,7 +1986,7 @@ function decodeUnused(stream: InputStream): void {
       break;
     case 18: {
       // array length==N
-      const length = decodeNumber(stream);
+      const length = decodeArrayLength(wire, stream);
       for (let i = 0; i < length; ++i) {
         decodeUnused(stream);
       }
@@ -2171,6 +2187,10 @@ class StructSerializerImpl<T = unknown>
             json[name]!,
             keep,
           );
+        } else if (keep) {
+          throw new Error(
+            `Cannot keep unrecognized readable struct field: ${name}`,
+          );
         }
       }
       return this.createFn(initializer);
@@ -2225,8 +2245,7 @@ class StructSerializerImpl<T = unknown>
       return this.defaultValue;
     }
     const initializer = { ...this.initializerTemplate };
-    const encodedSlots =
-      wire === 250 ? (decodeNumber(stream) as number) : wire - 246;
+    const encodedSlots = decodeArrayLength(wire, stream);
     const { slots, recognizedSlots } = this;
     // Do not read more slots than the number of recognized slots.
     for (let i = 0; i < encodedSlots && i < recognizedSlots; ++i) {
@@ -2408,7 +2427,7 @@ class EnumSerializerImpl<T = unknown>
     if (
       kind === "UNKNOWN" &&
       unrecognized &&
-      unrecognized.json &&
+      unrecognized.json !== undefined &&
       unrecognized.token === this.token
     ) {
       // Unrecognized variant.
@@ -2527,7 +2546,7 @@ class EnumSerializerImpl<T = unknown>
     const wire = stream.dataView.getUint8(startOffset);
     if (wire < 242) {
       // A number
-      const number = decodeNumber(stream) as number;
+      const number = decodeUint32(stream);
       const variant = this.variantMapping[number];
       if (!variant) {
         // Check if the variant was removed, in which case we want to return
@@ -2548,9 +2567,11 @@ class EnumSerializerImpl<T = unknown>
       }
       return variant.constant;
     } else {
+      if (wire !== 248 && (wire < 251 || wire > 254)) {
+        throw new Error(`Invalid enum wire tag: ${wire}`);
+      }
       ++stream.offset;
-      const number =
-        wire === 248 ? (decodeNumber(stream) as number) : wire - 250;
+      const number = wire === 248 ? decodeUint32(stream) : wire - 250;
       const variant = this.variantMapping[number];
       if (!variant) {
         decodeUnused(stream);
@@ -2650,7 +2671,9 @@ function copyJson(input: Json): Json {
     return Object.freeze(input.map(copyJson));
   } else if (input instanceof Object) {
     return Object.freeze(
-      Object.fromEntries(Object.entries(input).map((k, v) => [k, copyJson(v)])),
+      Object.fromEntries(
+        Object.entries(input).map(([k, v]) => [k, copyJson(v)]),
+      ),
     );
   }
   // A boolean, a number, a string or null.

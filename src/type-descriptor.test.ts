@@ -1,6 +1,12 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
+import assert from "node:assert/strict";
 import * as skir from "./skir-client.js";
+import {
+  binary,
+  structSerializer,
+  type StructInstance,
+} from "./test_helpers.js";
 
 describe("complex nested types with enums", () => {
   it("can transform parsed type descriptor", () => {
@@ -331,4 +337,152 @@ describe("enum name case-compatibility", () => {
   it("parses lower_case constant name in readable JSON", () => {
     expect(weekday.transform("tuesday", "dense")).toBe(2);
   });
+});
+
+describe("record serializers", () => {
+  const keep = "keep-unrecognized-values";
+  const emptyStruct = structSerializer({});
+  const emptyEnum = skir.parseTypeDescriptorFromJson({
+    type: { kind: "record", value: "test.skir:Record" },
+    records: [{ kind: "enum", id: "test.skir:Record", variants: [] }],
+  }) as unknown as skir.Serializer<StructInstance>;
+
+  it("retains unknown struct objects without sharing mutable input", () => {
+    const json = [{ nested: [1, { value: "kept" }] }];
+    const value = emptyStruct.fromJson(json, keep);
+    json[0]!.nested[1] = { value: "changed" };
+    assert.deepEqual(emptyStruct.toJson(value), [
+      { nested: [1, { value: "kept" }] },
+    ]);
+  });
+
+  it("cross-format struct serialization leaves the original unknown payload intact", () => {
+    const serializer = structSerializer({ known: "int32" });
+    const json = [7, { nested: [9] }];
+    const jsonValue = serializer.fromJson(json, keep);
+    assert.deepEqual(serializer.toBytes(jsonValue).toBuffer(), binary(247, 7));
+    assert.deepEqual(serializer.toJson(jsonValue, "readable"), { known: 7 });
+    assert.deepEqual(serializer.toJson(jsonValue), json);
+    const bytes = binary(248, 7, 9);
+    const binaryValue = serializer.fromBytes(bytes, keep);
+    assert.deepEqual(serializer.toJson(binaryValue), [7]);
+    assert.deepEqual(serializer.toJson(binaryValue, "readable"), { known: 7 });
+    assert.deepEqual(serializer.toBytes(binaryValue).toBuffer(), bytes);
+  });
+
+  it("rejects unknown readable fields when asked to keep them", () => {
+    assert.throws(
+      () => emptyStruct.fromJson({ future: 9 }, keep),
+      /unrecognized/i,
+    );
+    assert.deepEqual(
+      emptyStruct.toJson(emptyStruct.fromJson({ future: 9 })),
+      [],
+    );
+  });
+
+  it("retains unknown struct data through parsed descriptor transformations", () => {
+    const descriptor = skir.parseTypeDescriptorFromJson({
+      type: { kind: "record", value: "test.skir:Record" },
+      records: [{ kind: "struct", id: "test.skir:Record", fields: [] }],
+    });
+    assert.deepEqual(descriptor.transform([9], "dense"), [9]);
+    assert.deepEqual(
+      descriptor.transform(binary(247, 9), "bytes"),
+      binary(247, 9),
+    );
+    assert.deepEqual(descriptor.transform([9], "bytes"), binary(246));
+    assert.deepEqual(descriptor.transform(binary(247, 9), "dense"), []);
+  });
+
+  for (const json of [
+    9,
+    500,
+    [9, { nested: ["kept"] }],
+    { kind: "future", value: [1] },
+  ]) {
+    it(`retains parsed enum JSON ${JSON.stringify(json)}`, () => {
+      const value = emptyEnum.fromJson(json, keep);
+      assert.deepEqual(emptyEnum.toJson(value), json);
+      assert.deepEqual(emptyEnum.toBytes(value).toBuffer(), binary(0));
+      assert.deepEqual(emptyEnum.toJson(value), json);
+    });
+  }
+
+  for (const [kind, bytes] of [
+    ["constant", binary(232, 244, 1)],
+    ["wrapper", binary(251, 9)],
+  ] as const) {
+    it(`omits unknown binary enum ${kind} in JSON without losing it`, () => {
+      const value = emptyEnum.fromBytes(bytes, keep);
+      assert.equal(emptyEnum.toJson(value), 0);
+      assert.equal(emptyEnum.toJson(value, "readable"), "unknown");
+      assert.deepEqual(emptyEnum.toBytes(value).toBuffer(), bytes);
+    });
+  }
+
+  it("rejects invalid struct and enum tags and enum variant numbers", () => {
+    const serializers = [emptyStruct, emptyEnum];
+    for (const serializer of serializers) {
+      assert.throws(() => serializer.fromBytes(binary(244, 0)));
+    }
+    for (const keep of [undefined, "keep-unrecognized-values"] as const) {
+      for (const payload of [
+        [235, 255],
+        [241, 0, 0, 0, 0, 0, 0, 248, 63],
+        [248, 235, 255, 0],
+        [248, 241, 0, 0, 0, 0, 0, 0, 248, 63, 0],
+      ]) {
+        assert.throws(() => emptyEnum.fromBytes(binary(...payload), keep));
+      }
+    }
+  });
+
+  for (const [kind, serializer, wire] of [
+    ["struct", emptyStruct, 247],
+    ["enum", emptyEnum, 251],
+  ] as const) {
+    it(`skips and retains BOMs and malformed UTF-8 nested in unknown ${kind} values`, () => {
+      for (const keep of [undefined, "keep-unrecognized-values"] as const) {
+        for (const payload of [
+          // 130 UTF-8 bytes: a three-byte BOM followed by 127 ASCII characters.
+          [
+            243,
+            130,
+            239,
+            187,
+            191,
+            ...Array.from({ length: 127 }, (_, i) => i),
+          ],
+          [243, 1, 255],
+          [250, 1, 243, 1, 255],
+          [251, 243, 1, 255],
+        ]) {
+          const bytes = binary(wire, ...payload);
+          const value = serializer.fromBytes(bytes, keep);
+          if (keep) {
+            assert.deepEqual(serializer.toBytes(value).toBuffer(), bytes);
+          }
+        }
+      }
+    });
+
+    it(`rejects invalid lengths and truncated payloads nested in unknown ${kind} values`, () => {
+      for (const keep of [undefined, "keep-unrecognized-values"] as const) {
+        for (const payload of [
+          [232],
+          [245, 3, 65],
+          [250, 235, 255],
+          [243, 3, 65],
+          [243, 235, 255],
+          [250, 1, 243, 3, 65],
+          [251, 243, 3, 65],
+        ]) {
+          assert.throws(() =>
+            serializer.fromBytes(binary(wire, ...payload), keep),
+          );
+        }
+      }
+    });
+  }
 });
