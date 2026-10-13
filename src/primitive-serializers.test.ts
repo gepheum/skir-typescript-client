@@ -68,6 +68,13 @@ describe("int32 serializer", () => {
   const serializer = skir.primitiveSerializer("int32");
   const tester = new SerializerTester(serializer);
 
+  it("rejects incorrect headers and trailing bytes", () => {
+    assert.throws(() =>
+      serializer.fromBytes(Uint8Array.from([0, 0, 0, 0, 1]).buffer),
+    );
+    assert.throws(() => serializer.fromBytes(binary(1, 2)));
+  });
+
   tester.reserializeAndAssert(2, {
     denseJson: 2,
     bytesAsBase16: "02",
@@ -499,6 +506,36 @@ describe("string serializer", () => {
 describe("bytes serializer", () => {
   const serializer = skir.primitiveSerializer("bytes");
   const tester = new SerializerTester(serializer);
+
+  for (const length of [122, 123, 124, 128, 130, 256, 1000]) {
+    it(`preserves ${length} bytes across output buffer boundaries`, () => {
+      const bytes = Uint8Array.from({ length }, (_, i) => i % 256).buffer;
+      const value = skir.ByteString.sliceOf(bytes);
+      assert.deepEqual(
+        serializer.fromBytes(serializer.toBytes(value).toBuffer()).toBuffer(),
+        bytes,
+      );
+      const array = skir.arraySerializer(serializer);
+      assert.deepEqual(
+        array
+          .fromBytes(array.toBytes([value, value]).toBuffer())
+          .map((v) => v.toBuffer()),
+        [bytes, bytes],
+      );
+    });
+  }
+
+  it("rejects invalid bytes tags, lengths and truncated payloads", () => {
+    for (const bytes of [
+      binary(247, 1, 65),
+      binary(245, 3, 65),
+      binary(245, 235, 255),
+      binary(245, 234, 0, 0, 0, 0, 0, 0, 0, 0),
+      binary(245, 241, 0, 0, 0, 0, 0, 0, 248, 63),
+    ]) {
+      assert.throws(() => serializer.fromBytes(bytes));
+    }
+  });
 
   tester.reserializeAndAssert(skir.ByteString.fromBase64("abc123"), {
     denseJson: "abc12w==",
