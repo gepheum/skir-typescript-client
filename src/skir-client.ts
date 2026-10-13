@@ -1603,11 +1603,8 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
   readonly defaultValue = "";
 
   toJson(input: string): string {
-    if (typeof input === "string") {
-      // Unicode mode leaves valid surrogate pairs intact.
-      return input.replace(/[\uD800-\uDFFF]/gu, "\uFFFD");
-    }
-    throw this.newTypeError(input);
+    // Unicode mode leaves valid surrogate pairs intact.
+    return input.replace(/[\uD800-\uDFFF]/gu, "\uFFFD");
   }
 
   fromJson(json: Json): string {
