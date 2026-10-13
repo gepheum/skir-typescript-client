@@ -1609,6 +1609,7 @@ class StringSerializer extends AbstractPrimitiveSerializer<"string"> {
 
   fromJson(json: Json): string {
     if (typeof json === "string") {
+      // Reuse toJson's lone-surrogate sanitization when reading JSON.
       return this.toJson(json);
     }
     if (json === 0) {
