@@ -1,7 +1,7 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
-import { SerializerTester } from "./serializer_tester.js";
-import * as skir from "./skir-client.js";
+import { SerializerTester } from "../src/serializer_tester.js";
+import * as skir from "../src/skir-client.js";
 
 describe("Timestamp", () => {
   it("#MIN is min timestamp rerpresentable as Date objects", () => {
