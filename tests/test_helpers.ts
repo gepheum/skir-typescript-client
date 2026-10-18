@@ -4,7 +4,7 @@ import {
   primitiveSerializer,
   type PrimitiveTypes,
   type Serializer,
-} from "./skir-client.js";
+} from "../src/skir-client.js";
 
 type TypeSpec = Extract<
   Parameters<typeof _initModuleClasses>[1][number],

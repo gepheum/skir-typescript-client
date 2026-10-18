@@ -1,8 +1,8 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
 import assert from "node:assert/strict";
-import { SerializerTester } from "./serializer_tester.js";
-import * as skir from "./skir-client.js";
+import { SerializerTester } from "../src/serializer_tester.js";
+import * as skir from "../src/skir-client.js";
 import { binary } from "./test_helpers.js";
 
 describe("optional serializer", () => {

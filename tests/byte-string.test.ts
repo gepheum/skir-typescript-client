@@ -1,6 +1,6 @@
 import { expect } from "buckwheat";
 import { describe, it } from "mocha";
-import * as skir from "./skir-client.js";
+import * as skir from "../src/skir-client.js";
 
 describe("ByteString", () => {
   const makeTestByteArray = (length = 4, start = 0): Uint8Array => {

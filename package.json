@@ -24,18 +24,18 @@
   "files": [
     "dist/cjs",
     "dist/esm",
-    "src",
-    "!**/*.test.ts"
+    "src"
   ],
   "scripts": {
-    "build": "npm run build:cjs && npm run build:esm",
+    "build": "rm -rf dist && npm run build:cjs && npm run build:esm",
     "build:cjs": "tsc -p ./tsconfig.cjs.json && cp static/package-cjs.json dist/cjs/package.json",
     "build:esm": "tsc -p ./tsconfig.esm.json && cp static/package-esm.json dist/esm/package.json",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\"",
-    "test": "mocha",
-    "lint": "eslint src/**/*.ts",
-    "lint:fix": "eslint src/**/*.ts --fix"
+    "format": "prettier --write \"{src,tests}/**/*.ts\"",
+    "format:check": "prettier --check \"{src,tests}/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && mocha",
+    "lint": "eslint \"{src,tests}/**/*.ts\"",
+    "lint:fix": "eslint \"{src,tests}/**/*.ts\" --fix"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
