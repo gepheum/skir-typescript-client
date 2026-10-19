@@ -93,9 +93,7 @@ describe("int32 serializer", () => {
   });
   tester.reserializeAndAssert(-3.8, {
     denseJson: -3,
-    bytesAsBase16: "ebfc",
-    denseJsonFromReserialized: -4,
-    lossy: true,
+    bytesAsBase16: "ebfd",
   });
   tester.reserializeAndAssert(231, {
     denseJson: 231,
@@ -150,16 +148,16 @@ describe("int32 serializer", () => {
     expect(serializer.fromJson("2.3")).toBe(2);
   });
 
-  it("accepts NaN", () => {
-    expect(serializer.fromJson("NaN")).toBe(0);
+  it("rejects NaN", () => {
+    assert.throws(() => serializer.fromJson("NaN"), TypeError);
   });
 
-  it("accepts Infinity", () => {
-    expect(serializer.fromJson("Infinity")).toBe(0);
+  it("rejects Infinity", () => {
+    assert.throws(() => serializer.fromJson("Infinity"), TypeError);
   });
 
-  it("accepts -Infinity", () => {
-    expect(serializer.fromJson("-Infinity")).toBe(0);
+  it("rejects -Infinity", () => {
+    assert.throws(() => serializer.fromJson("-Infinity"), TypeError);
   });
 
   it("accepts numbers out of int32 range", () => {
@@ -266,10 +264,10 @@ describe("float32 serializer", () => {
   const tester = new SerializerTester(serializer);
 
   it("can deserialize any number", () => {
-    expect(serializer.fromJson("1111111111")).toMatch(1111111111);
+    expect(serializer.fromJson("1111111111")).toMatch(1111111168);
     expect(
       serializer.fromJson("1111111111111111111111111111111111111111"),
-    ).toMatch(1.1111111111111112e39);
+    ).toMatch(Infinity);
   });
 
   tester.reserializeAndAssert(2, {
@@ -289,16 +287,12 @@ describe("float32 serializer", () => {
     bytesAsBase16: "f00000c0bf",
   });
   tester.reserializeAndAssert(2.8, {
-    denseJson: 2.8,
+    denseJson: 2.799999952316284,
     bytesAsBase16: "f033333340",
-    denseJsonFromReserialized: 2.799999952316284,
-    lossy: true,
   });
   tester.reserializeAndAssert(-3.8, {
-    denseJson: -3.8,
+    denseJson: -3.799999952316284,
     bytesAsBase16: "f0333373c0",
-    denseJsonFromReserialized: -3.799999952316284,
-    lossy: true,
   });
   tester.reserializeAndAssert(Number.NaN, {
     denseJson: "NaN",
