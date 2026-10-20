@@ -78,10 +78,8 @@ class Int32Serializer extends AbstractPrimitiveSerializer<"int32"> {
   readonly defaultValue = 0;
 
   private normalize(input: number): number {
-    if (typeof input !== "number" || !Number.isFinite(input)) {
-      throw new TypeError("Expected a finite number");
-    }
-    return Math.trunc(input);
+    input = Math.trunc(input);
+    return Number.isFinite(input) ? input : 0;
   }
 
   override isDefault(input: number): boolean {
@@ -89,13 +87,13 @@ class Int32Serializer extends AbstractPrimitiveSerializer<"int32"> {
   }
 
   toJson(input: number): number {
-    return this.normalize(input) | 0;
+    return input | 0;
   }
 
   fromJson(json: Json): number {
     // `+value` will work if the input JSON value is a string, which is
     // what the int64 serializer produces.
-    return this.toJson(+(json as number | string));
+    return +(json as number | string) | 0;
   }
 
   encode(input: number, stream: OutputStream): void {
@@ -123,7 +121,7 @@ class Int32Serializer extends AbstractPrimitiveSerializer<"int32"> {
   }
 
   decode(stream: InputStream): number {
-    return this.toJson(Number(decodeNumber(stream)));
+    return Number(decodeNumber(stream)) | 0;
   }
 }
 
@@ -135,9 +133,6 @@ abstract class FloatSerializer<
   readonly defaultValue = 0;
 
   protected normalize(input: number): number {
-    if (typeof input !== "number") {
-      throw new TypeError("Expected a number");
-    }
     if (this.primitive === "float32") {
       input = Math.fround(input);
     }
@@ -181,7 +176,6 @@ class Float64Serializer extends FloatSerializer<"float64"> {
   readonly primitive = "float64";
 
   encode(input: number, stream: OutputStream): void {
-    input = this.normalize(input);
     if (input === 0) {
       stream.writeUint8(0);
     } else {
@@ -191,24 +185,10 @@ class Float64Serializer extends FloatSerializer<"float64"> {
   }
 }
 
-function requireBigInt(input: bigint): bigint {
-  if (typeof input !== "bigint") {
-    throw new TypeError("Expected a bigint");
-  }
-  return input;
-}
-
 abstract class AbstractBigIntSerializer<
   P extends "int64" | "hash64",
 > extends AbstractPrimitiveSerializer<P> {
   readonly defaultValue = BigInt(0);
-
-  override isDefault(input: bigint): boolean {
-    input = requireBigInt(input);
-    return this.primitive === "hash64"
-      ? input <= this.defaultValue
-      : input === this.defaultValue;
-  }
 
   fromJson(json: Json): bigint {
     try {
@@ -231,7 +211,6 @@ class Int64Serializer extends AbstractBigIntSerializer<"int64"> {
   readonly primitive = "int64";
 
   toJson(input: bigint): number | string {
-    input = requireBigInt(input);
     // 9007199254740991 == Number.MAX_SAFE_INTEGER
     if (-9007199254740991 <= input && input <= 9007199254740991) {
       return Number(input);
@@ -249,7 +228,6 @@ class Int64Serializer extends AbstractBigIntSerializer<"int64"> {
   }
 
   encode(input: bigint, stream: OutputStream): void {
-    input = requireBigInt(input);
     if (input) {
       if (-2147483648 <= input && input <= 2147483647) {
         int32_Serializer.encode(Number(input), stream);
@@ -275,8 +253,11 @@ const MAX_HASH64 = BigInt("18446744073709551615");
 class Hash64Serializer extends AbstractBigIntSerializer<"hash64"> {
   readonly primitive = "hash64";
 
+  override isDefault(input: bigint): boolean {
+    return input <= this.defaultValue;
+  }
+
   toJson(input: bigint): number | string {
-    input = requireBigInt(input);
     if (input <= 9007199254740991) {
       return input <= 0 ? 0 : Number(input);
     }
@@ -285,7 +266,6 @@ class Hash64Serializer extends AbstractBigIntSerializer<"hash64"> {
   }
 
   encode(input: bigint, stream: OutputStream): void {
-    input = requireBigInt(input);
     if (input < 232) {
       stream.writeUint8(input <= 0 ? 0 : Number(input));
     } else if (input < 4294967296) {
@@ -320,9 +300,6 @@ class TimestampSerializer extends AbstractPrimitiveSerializer<"timestamp"> {
     input: Timestamp,
     flavor?: JsonFlavor,
   ): number | TimestampReadableJson {
-    if (!(input instanceof Timestamp)) {
-      throw new TypeError("Expected a Timestamp");
-    }
     return flavor === "readable"
       ? {
           unix_millis: input.unixMillis,
@@ -342,7 +319,7 @@ class TimestampSerializer extends AbstractPrimitiveSerializer<"timestamp"> {
   }
 
   encode(input: Timestamp, stream: OutputStream): void {
-    const unixMillis = this.toJson(input) as number;
+    const { unixMillis } = input;
     if (unixMillis) {
       stream.writeUint8(239);
       stream.writeInt64(BigInt(unixMillis));
@@ -357,7 +334,7 @@ class TimestampSerializer extends AbstractPrimitiveSerializer<"timestamp"> {
   }
 
   override isDefault(input: Timestamp): boolean {
-    return this.toJson(input) === 0;
+    return !input.unixMillis;
   }
 }
 
@@ -450,9 +427,6 @@ class ByteStringSerializer extends AbstractPrimitiveSerializer<"bytes"> {
   readonly defaultValue = ByteString.EMPTY;
 
   toJson(input: ByteString, flavor?: JsonFlavor): string {
-    if (!(input instanceof ByteString)) {
-      throw new TypeError("Expected a ByteString");
-    }
     return flavor === "readable" ? "hex:" + input.toBase16() : input.toBase64();
   }
 
@@ -467,9 +441,6 @@ class ByteStringSerializer extends AbstractPrimitiveSerializer<"bytes"> {
   }
 
   encode(input: ByteString, stream: OutputStream): void {
-    if (!(input instanceof ByteString)) {
-      throw new TypeError("Expected a ByteString");
-    }
     const { byteLength } = input;
     if (byteLength) {
       stream.writeUint8(245);
@@ -495,9 +466,6 @@ class ByteStringSerializer extends AbstractPrimitiveSerializer<"bytes"> {
   }
 
   override isDefault(input: ByteString): boolean {
-    if (!(input instanceof ByteString)) {
-      throw new TypeError("Expected a ByteString");
-    }
     return !input.byteLength;
   }
 }

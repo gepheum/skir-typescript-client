@@ -1,3 +1,4 @@
+import { ByteString } from "../byte-string.js";
 import type {
   Freezable,
   InternalSerializer,
@@ -20,6 +21,7 @@ import type {
   PrimitiveTypes,
   StructDescriptor,
 } from "../serializers/type-descriptor.js";
+import { Timestamp } from "../timestamp.js";
 import { frozenArrayRegistry, PRIVATE_KEY, UnrecognizedEnum } from "./base.js";
 
 interface StructSpec {
@@ -130,6 +132,9 @@ export function _initModuleClasses(
           }
           const ret = new ctor(privateKey);
           initFn(ret, initializer);
+          for (const field of record.fields) {
+            validateValue((ret as AnyRecord)[field.property], field.type);
+          }
           if ((initializer as AnyRecord)["^"]) {
             (ret as AnyRecord)["^"] = (initializer as AnyRecord)["^"];
           }
@@ -299,6 +304,13 @@ function makeCreateEnumFunction(
         ? new ctor(privateKey, kind, undefined, unrecognized)
         : maybeConstant;
     }
+    const type = enumSpec.variants.find(
+      (variant) => variant.name === kind,
+    )?.type;
+    if (!type) {
+      throw new Error(`Wrapper variant not found: ${kind}`);
+    }
+    validateValue(value, type);
     return new ctor(privateKey, kind, value, unrecognized);
   };
 }
@@ -312,6 +324,9 @@ function makeMutableClassForRecord(
   class Mutable {
     constructor(initializer: unknown = defaultFrozen) {
       initFn(this, initializer);
+      for (const field of structSpec.fields) {
+        validateValue((this as AnyRecord)[field.property], field.type);
+      }
       if ((initializer as AnyRecord)["^"]) {
         (this as AnyRecord)["^"] = (initializer as AnyRecord)["^"];
       }
@@ -342,6 +357,58 @@ function getSerializerForType(type: TypeSpec): Serializer<unknown> {
       return (type.ctor as unknown as AnyRecord)
         .serializer as Serializer<unknown>;
   }
+}
+
+function validateValue(value: unknown, type: TypeSpec): void {
+  switch (type.kind) {
+    case "optional":
+      if (value !== null) {
+        validateValue(value, type.other);
+      }
+      return;
+    case "array":
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          validateValue(item, type.item);
+        }
+        return;
+      }
+      break;
+    case "record":
+      if (value instanceof type.ctor) {
+        return;
+      }
+      break;
+    case "primitive":
+      switch (type.primitive) {
+        case "int32":
+          if (typeof value === "number" && Number.isFinite(value)) return;
+          break;
+        case "float32":
+        case "float64":
+          if (typeof value === "number") return;
+          break;
+        case "int64":
+        case "hash64":
+          if (typeof value === "bigint") return;
+          break;
+        case "timestamp":
+          if (value instanceof Timestamp) return;
+          break;
+        case "bytes":
+          if (value instanceof ByteString) return;
+          break;
+        case "bool":
+          if (typeof value === "boolean") return;
+          break;
+        case "string":
+          if (typeof value === "string") return;
+          break;
+      }
+  }
+  throw new TypeError(
+    `Invalid ${type.kind === "primitive" ? type.primitive : type.kind} value`,
+  );
 }
 
 // The `mutableArray()` getter of the Mutable class returns `this.array` if and

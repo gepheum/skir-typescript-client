@@ -127,6 +127,34 @@ describe("generated class support", () => {
     assert.equal(node.toString(), Node.serializer.toJsonCode(node, "readable"));
   });
 
+  it("rejects invalid int32 values at construction and freezing", () => {
+    for (const value of [NaN, Infinity, -Infinity]) {
+      assert.throws(() => Node.create({ value }), TypeError);
+      assert.throws(() => new Node.Mutable({ value }), TypeError);
+      assert.throws(() => Choice.create({ kind: "number", value }), TypeError);
+      const mutable = new Node.Mutable();
+      mutable.value = value;
+      assert.throws(() => mutable.toFrozen(), TypeError);
+    }
+  });
+
+  it("keeps serialization nonthrowing after mutable field assignment", () => {
+    for (const value of [NaN, Infinity, -Infinity]) {
+      const node = new Node.Mutable({ next: Node.create({ value: 7 }) });
+      node.value = value;
+      assert.deepEqual(Node.serializer.toJson(node), [0, [7]]);
+      assert.deepEqual(Node.serializer.toJson(node, "readable"), {
+        next: { value: 7 },
+      });
+      assert.equal(Node.serializer.toJsonCode(node), "[0,[7]]");
+      const decoded = Node.serializer.fromBytes(
+        Node.serializer.toBytes(node).toBuffer(),
+      );
+      assert.equal(decoded.value, 0);
+      assert.equal(decoded.next.value, 7);
+    }
+  });
+
   it("preserves enum constants and wrapper variants", () => {
     assert.equal(Choice.create("EMPTY"), Choice.EMPTY);
     const choice = Choice.create({ kind: "number", value: 42 });

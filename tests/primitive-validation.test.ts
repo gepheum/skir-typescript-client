@@ -1,7 +1,7 @@
 import { describe, it } from "mocha";
 import assert from "node:assert/strict";
 import * as skir from "../src/skir-client.js";
-import { defineStruct } from "./test_helpers.js";
+import { defineStruct, type StructInstance } from "./test_helpers.js";
 
 describe("primitive serialization consistency", () => {
   const int32 = skir.primitiveSerializer("int32");
@@ -21,16 +21,13 @@ describe("primitive serialization consistency", () => {
     }
   });
 
-  it("rejects nonfinite int32 inputs in JSON and binary", () => {
+  it("normalizes nonfinite int32 inputs to zero without throwing", () => {
     for (const input of [NaN, Infinity, -Infinity]) {
-      assert.throws(() => int32.toJson(input), TypeError);
-      assert.throws(() => int32.toBytes(input), TypeError);
-      assert.throws(() => int32.fromJson(input), TypeError);
-      assert.throws(() => int32.fromJson(String(input)), TypeError);
-      assert.throws(
-        () => int32.fromBytes(float64.toBytes(input).toBuffer()),
-        TypeError,
-      );
+      assert.equal(int32.toJson(input), 0);
+      assert.equal(int32.fromBytes(int32.toBytes(input).toBuffer()), 0);
+      assert.equal(int32.fromJson(input), 0);
+      assert.equal(int32.fromJson(String(input)), 0);
+      assert.equal(int32.fromBytes(float64.toBytes(input).toBuffer()), 0);
     }
   });
 
@@ -76,50 +73,6 @@ describe("primitive serialization consistency", () => {
     });
   }
 
-  const invalid: ReadonlyArray<
-    readonly [keyof skir.PrimitiveTypes, readonly unknown[]]
-  > = [
-    ["int32", [NaN, "2", null, true, undefined, {}, BigInt(0)]],
-    ["float32", ["2", null, false, undefined, {}, BigInt(0)]],
-    ["float64", ["2", null, false, undefined, {}, BigInt(0)]],
-    ["int64", ["garbage", 0, null, undefined, {}]],
-    ["hash64", ["0", 0, null, undefined, {}]],
-    ["timestamp", [{ unixMillis: 2 }, { unixMillis: 0 }, null, undefined, 0]],
-    ["bytes", [{ byteLength: 0 }, { byteLength: 1 }, null, undefined, ""]],
-  ];
-
-  for (const [type, inputs] of invalid) {
-    it(`rejects invalid ${type} runtime values in primitive and struct writers`, () => {
-      const serializer = skir.primitiveSerializer(
-        type,
-      ) as skir.Serializer<unknown>;
-      const Struct = defineStruct({ value: type });
-      for (const input of inputs) {
-        for (const flavor of ["dense", "readable"] as const) {
-          assert.throws(() => serializer.toJson(input, flavor), TypeError);
-          assert.throws(
-            () => Struct.serializer.toJson({ value: input }, flavor),
-            TypeError,
-          );
-        }
-        assert.throws(() => serializer.toBytes(input), TypeError);
-        assert.throws(
-          () => Struct.serializer.toBytes({ value: input }),
-          TypeError,
-        );
-      }
-    });
-  }
-
-  it("validates invalid empty bytes before omitting a nested default struct", () => {
-    const Inner = defineStruct({ data: "bytes" });
-    const Outer = defineStruct({ value: { kind: "record", ctor: Inner } });
-    const input = { value: { data: { byteLength: 0 } } };
-    assert.throws(() => Outer.serializer.toJson(input), TypeError);
-    assert.throws(() => Outer.serializer.toJson(input, "readable"), TypeError);
-    assert.throws(() => Outer.serializer.toBytes(input), TypeError);
-  });
-
   for (const [type, input] of [
     ["int32", -0.8],
     ["float32", 1e-50],
@@ -138,4 +91,99 @@ describe("primitive serialization consistency", () => {
       );
     });
   }
+});
+
+describe("construction-time validation", () => {
+  const invalid: ReadonlyArray<
+    readonly [keyof skir.PrimitiveTypes, readonly unknown[]]
+  > = [
+    ["int32", [NaN, Infinity, -Infinity, "2", true, {}, BigInt(0)]],
+    ["float32", ["2", false, {}, BigInt(0)]],
+    ["float64", ["2", false, {}, BigInt(0)]],
+    ["int64", ["0", 0, {}]],
+    ["hash64", ["0", 0, {}]],
+    ["timestamp", [{ unixMillis: 0 }, 0]],
+    ["bytes", [{ byteLength: 0 }, ""]],
+    ["string", [2, false, {}]],
+    ["bool", [1, "true", {}]],
+  ];
+
+  for (const [type, inputs] of invalid) {
+    it(`rejects invalid ${type} values in frozen and mutable constructors`, () => {
+      const Struct = defineStruct({ value: type });
+      for (const value of inputs) {
+        assert.throws(() => Struct.create({ value }), TypeError);
+        assert.throws(() => new Struct.Mutable({ value }), TypeError);
+      }
+    });
+  }
+
+  for (const [type, input] of [
+    ["int32", -3.8],
+    ["float32", NaN],
+    ["float32", Infinity],
+    ["float64", -Infinity],
+    ["int64", BigInt("9223372036854775808")],
+    ["hash64", BigInt(-1)],
+    ["timestamp", skir.Timestamp.UNIX_EPOCH],
+    ["bytes", skir.ByteString.EMPTY],
+    ["string", "hello"],
+    ["bool", true],
+  ] as const) {
+    it(`keeps valid ${type} values serializable`, () => {
+      const Struct = defineStruct({ value: type });
+      for (const object of [
+        Struct.create({ value: input }),
+        new Struct.Mutable({ value: input }),
+      ]) {
+        assert.equal(object.value, input);
+        Struct.serializer.toJsonCode(object);
+        Struct.serializer.toJsonCode(object, "readable");
+        Struct.serializer.toBytes(object);
+      }
+    });
+  }
+
+  it("validates array items and optional values", () => {
+    const int32 = { kind: "primitive", primitive: "int32" } as const;
+    const Struct = defineStruct(
+      { values: { kind: "array", item: { kind: "optional", other: int32 } } },
+      (target, initializer) => {
+        target.values = skir._toFrozenArray(
+          (initializer.values || []) as readonly unknown[],
+        );
+      },
+    );
+    for (const values of [[NaN], [1, "2"], new Array(2)]) {
+      assert.throws(() => Struct.create({ values }), TypeError);
+      assert.throws(() => new Struct.Mutable({ values }), TypeError);
+    }
+    const valid = Struct.create({ values: [1, null, -3.8] });
+    assert.deepEqual(Struct.serializer.toJson(valid), [[1, null, -3]]);
+    assert.deepEqual(Struct.create({ values: {} }).values, []);
+  });
+
+  it("rejects invalid nested record values at construction", () => {
+    const Inner = defineStruct({ value: "int32" });
+    const Outer = defineStruct(
+      { inner: { kind: "record", ctor: Inner } },
+      (target, initializer) => {
+        target.inner = Inner.create(
+          (initializer.inner ?? Inner.serializer.fromJson(0)) as StructInstance,
+        );
+      },
+    );
+    assert.throws(() => Outer.create({ inner: { value: "bad" } }), TypeError);
+    assert.throws(
+      () => new Outer.Mutable({ inner: { value: "bad" } }),
+      TypeError,
+    );
+    for (const object of [
+      Outer.create({ inner: { value: 3 } }),
+      new Outer.Mutable({ inner: { value: 3 } }),
+    ]) {
+      assert(object.inner instanceof Inner);
+      assert.deepEqual(Outer.serializer.toJson(object), [[3]]);
+    }
+  });
 });

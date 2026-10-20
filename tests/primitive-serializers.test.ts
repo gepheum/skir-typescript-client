@@ -148,16 +148,16 @@ describe("int32 serializer", () => {
     expect(serializer.fromJson("2.3")).toBe(2);
   });
 
-  it("rejects NaN", () => {
-    assert.throws(() => serializer.fromJson("NaN"), TypeError);
+  it("accepts NaN", () => {
+    expect(serializer.fromJson("NaN")).toBe(0);
   });
 
-  it("rejects Infinity", () => {
-    assert.throws(() => serializer.fromJson("Infinity"), TypeError);
+  it("accepts Infinity", () => {
+    expect(serializer.fromJson("Infinity")).toBe(0);
   });
 
-  it("rejects -Infinity", () => {
-    assert.throws(() => serializer.fromJson("-Infinity"), TypeError);
+  it("accepts -Infinity", () => {
+    expect(serializer.fromJson("-Infinity")).toBe(0);
   });
 
   it("accepts numbers out of int32 range", () => {

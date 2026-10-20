@@ -1,5 +1,8 @@
+import { PRIVATE_KEY } from "../src/codegen-runtime/base.js";
 import {
   _EMPTY_ARRAY,
+  _FrozenBase,
+  _INITIALIZER,
   _initModuleClasses,
   primitiveSerializer,
   type PrimitiveTypes,
@@ -17,10 +20,14 @@ export type StructInstance = Record<string, unknown>;
 
 let structNumber = 0;
 
-export function defineStruct(schema: StructSchema): {
-  new (): StructInstance;
-  serializer: Serializer<StructInstance>;
-} {
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type -- Infer the fixture class API.
+export function defineStruct(
+  schema: StructSchema,
+  initFn: (
+    target: StructInstance,
+    initializer: StructInstance,
+  ) => void = Object.assign,
+) {
   const fields = Object.entries(schema).map(([name, type], number) => ({
     name,
     property: name,
@@ -45,11 +52,17 @@ export function defineStruct(schema: StructSchema): {
     }),
   );
 
-  class Struct {
-    static serializer: Serializer<Struct>;
+  class Struct extends _FrozenBase {
+    static serializer: Serializer<StructInstance>;
+    declare static create: (initializer: StructInstance) => Struct;
+    declare static Mutable: new (
+      initializer?: StructInstance,
+    ) => StructInstance;
+    declare [_INITIALIZER]: StructInstance;
     [key: string]: unknown;
 
-    constructor() {
+    constructor(privateKey = PRIVATE_KEY) {
+      super(privateKey);
       Object.assign(this, defaults);
     }
   }
@@ -60,7 +73,7 @@ export function defineStruct(schema: StructSchema): {
       ctor: Struct,
       name: `Struct${structNumber++}`,
       initFn: (target, initializer): void => {
-        Object.assign(target as object, initializer);
+        initFn(target as StructInstance, initializer as StructInstance);
       },
       fields,
     },
