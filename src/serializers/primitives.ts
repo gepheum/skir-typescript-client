@@ -77,6 +77,15 @@ class Int32Serializer extends AbstractPrimitiveSerializer<"int32"> {
   readonly primitive = "int32";
   readonly defaultValue = 0;
 
+  private normalize(input: number): number {
+    input = Math.trunc(input);
+    return Number.isFinite(input) ? input : 0;
+  }
+
+  override isDefault(input: number): boolean {
+    return this.normalize(input) === 0;
+  }
+
   toJson(input: number): number {
     return input | 0;
   }
@@ -88,6 +97,7 @@ class Int32Serializer extends AbstractPrimitiveSerializer<"int32"> {
   }
 
   encode(input: number, stream: OutputStream): void {
+    input = this.normalize(input);
     if (input < 0) {
       if (input >= -256) {
         stream.writeUint8(235);
@@ -122,27 +132,32 @@ abstract class FloatSerializer<
 > extends AbstractPrimitiveSerializer<P> {
   readonly defaultValue = 0;
 
-  toJson(input: number): number | string {
-    if (Number.isFinite(input)) {
-      return input;
-    } else if (typeof input === "number") {
-      // If the number is NaN or +/- Infinity, return a JSON string.
-      return input.toString();
+  protected normalize(input: number): number {
+    if (this.primitive === "float32") {
+      input = Math.fround(input);
     }
-    throw new TypeError();
+    return input === 0 ? 0 : input;
+  }
+
+  toJson(input: number): number | string {
+    if (typeof input !== "number") {
+      throw new TypeError();
+    }
+    input = this.normalize(input);
+    return Number.isFinite(input) ? input : input.toString();
   }
 
   fromJson(json: Json): number {
-    return +(json as number | string);
+    return this.normalize(+(json as number | string));
   }
 
   decode(stream: InputStream): number {
-    return Number(decodeNumber(stream));
+    return this.normalize(Number(decodeNumber(stream)));
   }
 
   override isDefault(input: number): boolean {
     // Needs to work for NaN.
-    return input === 0;
+    return this.normalize(input) === 0;
   }
 }
 
@@ -150,6 +165,7 @@ class Float32Serializer extends FloatSerializer<"float32"> {
   readonly primitive = "float32";
 
   encode(input: number, stream: OutputStream): void {
+    input = this.normalize(input);
     if (input === 0) {
       stream.writeUint8(0);
     } else {
@@ -239,6 +255,10 @@ const MAX_HASH64 = BigInt("18446744073709551615");
 
 class Hash64Serializer extends AbstractBigIntSerializer<"hash64"> {
   readonly primitive = "hash64";
+
+  override isDefault(input: bigint): boolean {
+    return input <= this.defaultValue;
+  }
 
   toJson(input: bigint): number | string {
     if (input <= 9007199254740991) {
